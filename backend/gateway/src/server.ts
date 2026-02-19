@@ -3,6 +3,7 @@ import { Server as SocketIOServer } from "socket.io";
 import { createApp } from "./app.js";
 import { config } from "./config.js";
 import { ContractSafeBroadcaster } from "./socket-broadcaster.js";
+import { RedisBridge } from "./redis-bridge.js";
 import { closeRedis } from "./redis.js";
 import { closePool } from "./db.js";
 import { closeQueue } from "./queue.js";
@@ -34,6 +35,7 @@ io.on("connection", (socket) => {
 
 // Export for use by worker bridge / routes
 export const broadcaster = new ContractSafeBroadcaster(io);
+export const redisBridge = new RedisBridge(broadcaster);
 export { io };
 
 // ── Start ──────────────────────────────────────────────────
@@ -42,12 +44,19 @@ httpServer.listen(config.port, () => {
   console.log(`Gateway listening on http://localhost:${config.port}`);
   // eslint-disable-next-line no-console
   console.log(`Socket.io attached on /socket.io`);
+
+  // Start Redis → Socket.io bridge (non-blocking; logs errors internally)
+  redisBridge.start().catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error("[Gateway] Redis bridge failed to start:", err);
+  });
 });
 
 // ── Graceful shutdown ──────────────────────────────────────
 async function shutdown(signal: string): Promise<void> {
   // eslint-disable-next-line no-console
   console.log(`\n${signal} received — shutting down gracefully…`);
+  await redisBridge.close();
   io.close();
   httpServer.close();
   await closeQueue();
