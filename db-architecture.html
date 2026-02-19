@@ -1,0 +1,894 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>RIFT 2026 — Database Architecture</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=DM+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:       #03060f;
+  --bg2:      #060b18;
+  --panel:    #0a1020;
+  --panel2:   #0e1628;
+  --border:   #162038;
+  --border2:  #1e2d4e;
+
+  --pg:    #3b82f6;
+  --ch:    #10b981;
+  --rd:    #f59e0b;
+  --fs:    #8b5cf6;
+
+  --pk:    #fbbf24;
+  --fk:    #f472b6;
+  --idx:   #34d399;
+  --col:   #94a3b8;
+  --type:  #64748b;
+
+  --text:  #e2e8f0;
+  --muted: #64748b;
+  --dim:   #253352;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'DM Sans', sans-serif;
+  min-height: 100vh;
+  padding: 40px 20px 80px;
+  background-image:
+    radial-gradient(ellipse 70% 40% at 20% 0%, rgba(59,130,246,0.07) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 40% at 80% 100%, rgba(16,185,129,0.06) 0%, transparent 60%);
+}
+
+/* ── Header ── */
+.header { text-align: center; margin-bottom: 48px; }
+.header-pill {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase;
+  color: var(--pg); background: rgba(59,130,246,0.08);
+  border: 1px solid rgba(59,130,246,0.2);
+  padding: 5px 16px; border-radius: 20px; margin-bottom: 16px;
+}
+.header h1 {
+  font-size: clamp(20px, 3.5vw, 34px); font-weight: 800;
+  letter-spacing: -0.025em;
+  background: linear-gradient(135deg, #fff 30%, #6b7280 100%);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text; margin-bottom: 8px;
+}
+.header p { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted); }
+
+/* ── DB Legend ── */
+.db-legend {
+  display: flex; flex-wrap: wrap; gap: 12px 28px;
+  justify-content: center; margin-bottom: 40px;
+}
+.db-leg-item {
+  display: flex; align-items: center; gap: 8px;
+  font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--muted);
+}
+.db-leg-dot { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+
+/* ── Column legend ── */
+.col-legend {
+  display: flex; flex-wrap: wrap; gap: 10px 20px;
+  justify-content: center; margin-bottom: 48px;
+}
+.col-leg-item {
+  display: flex; align-items: center; gap: 6px;
+  font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--muted);
+}
+.col-leg-icon { font-size: 11px; }
+
+/* ── Layout ── */
+.db-layout {
+  max-width: 1400px; margin: 0 auto;
+  display: flex; flex-direction: column; gap: 48px;
+}
+
+/* ── DB Section ── */
+.db-section { }
+.db-section-header {
+  display: flex; align-items: center; gap: 14px; margin-bottom: 20px;
+}
+.db-section-icon {
+  width: 40px; height: 40px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px; flex-shrink: 0;
+}
+.db-section-meta { }
+.db-section-name {
+  font-size: 16px; font-weight: 700; letter-spacing: -0.01em;
+}
+.db-section-sub {
+  font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--muted); margin-top: 2px;
+}
+.db-section-badge {
+  margin-left: auto;
+  font-family: 'JetBrains Mono', monospace; font-size: 9px;
+  padding: 3px 10px; border-radius: 5px; letter-spacing: 0.05em;
+}
+
+/* ── Tables Grid ── */
+.tables-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 12px;
+}
+
+/* ── Table Card ── */
+.table-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  transition: border-color 0.2s, transform 0.15s;
+}
+.table-card:hover { transform: translateY(-2px); }
+
+.table-header {
+  padding: 12px 16px;
+  display: flex; align-items: center; gap: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.table-icon { font-size: 14px; }
+.table-name {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px; font-weight: 600; letter-spacing: 0.02em;
+}
+.table-desc {
+  margin-left: auto;
+  font-family: 'JetBrains Mono', monospace; font-size: 9px;
+  color: var(--muted); text-align: right; max-width: 130px; line-height: 1.4;
+}
+
+.table-body { }
+.col-row {
+  display: flex; align-items: center;
+  padding: 7px 16px; gap: 8px;
+  border-bottom: 1px solid rgba(22,32,56,0.6);
+  font-family: 'JetBrains Mono', monospace;
+}
+.col-row:last-child { border-bottom: none; }
+.col-row:hover { background: rgba(255,255,255,0.02); }
+
+.col-flag {
+  font-size: 11px; min-width: 14px; text-align: center; flex-shrink: 0;
+}
+.col-name { font-size: 11px; font-weight: 500; flex: 1; min-width: 0; }
+.col-type { font-size: 9px; color: var(--type); white-space: nowrap; }
+.col-note {
+  font-size: 9px; color: var(--muted);
+  margin-left: 8px; white-space: nowrap;
+  border-left: 1px solid var(--border2); padding-left: 8px;
+}
+
+/* ── PostgreSQL colors ── */
+.pg .table-card   { border-color: rgba(59,130,246,0.25); }
+.pg .table-card:hover { border-color: var(--pg); box-shadow: 0 0 20px rgba(59,130,246,0.15); }
+.pg .table-header { background: rgba(59,130,246,0.06); }
+.pg .table-name   { color: #60a5fa; }
+.pg .db-section-name { color: var(--pg); }
+.pg .db-section-icon { background: rgba(59,130,246,0.1); }
+.pg .db-section-badge { background: rgba(59,130,246,0.1); color: var(--pg); border: 1px solid rgba(59,130,246,0.2); }
+
+/* ── ChromaDB colors ── */
+.ch .table-card   { border-color: rgba(16,185,129,0.25); }
+.ch .table-card:hover { border-color: var(--ch); box-shadow: 0 0 20px rgba(16,185,129,0.15); }
+.ch .table-header { background: rgba(16,185,129,0.06); }
+.ch .table-name   { color: #34d399; }
+.ch .db-section-name { color: var(--ch); }
+.ch .db-section-icon { background: rgba(16,185,129,0.1); }
+.ch .db-section-badge { background: rgba(16,185,129,0.1); color: var(--ch); border: 1px solid rgba(16,185,129,0.2); }
+
+/* ── Redis colors ── */
+.rd .table-card   { border-color: rgba(245,158,11,0.25); }
+.rd .table-card:hover { border-color: var(--rd); box-shadow: 0 0 20px rgba(245,158,11,0.15); }
+.rd .table-header { background: rgba(245,158,11,0.06); }
+.rd .table-name   { color: #fbbf24; }
+.rd .db-section-name { color: var(--rd); }
+.rd .db-section-icon { background: rgba(245,158,11,0.1); }
+.rd .db-section-badge { background: rgba(245,158,11,0.1); color: var(--rd); border: 1px solid rgba(245,158,11,0.2); }
+
+/* ── File System colors ── */
+.fs .table-card   { border-color: rgba(139,92,246,0.25); }
+.fs .table-card:hover { border-color: var(--fs); box-shadow: 0 0 20px rgba(139,92,246,0.15); }
+.fs .table-header { background: rgba(139,92,246,0.06); }
+.fs .table-name   { color: #a78bfa; }
+.fs .db-section-name { color: var(--fs); }
+.fs .db-section-icon { background: rgba(139,92,246,0.1); }
+.fs .db-section-badge { background: rgba(139,92,246,0.1); color: var(--fs); border: 1px solid rgba(139,92,246,0.2); }
+
+/* ── Relationship Map ── */
+.rel-section {
+  max-width: 1400px; margin: 0 auto;
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 14px; overflow: hidden;
+}
+.rel-header {
+  padding: 16px 24px; border-bottom: 1px solid var(--border);
+  font-family: 'JetBrains Mono', monospace; font-size: 10px;
+  letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted);
+}
+.rel-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+  gap: 0;
+}
+.rel-row {
+  display: flex; align-items: flex-start; gap: 14px;
+  padding: 14px 24px;
+  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  font-family: 'JetBrains Mono', monospace;
+}
+.rel-row:nth-last-child(-n+2) { border-bottom: none; }
+.rel-from { font-size: 11px; color: #60a5fa; white-space: nowrap; font-weight: 600; min-width: 90px; margin-top: 1px; }
+.rel-arrow { font-size: 11px; color: var(--dim); margin-top: 1px; }
+.rel-to   { font-size: 11px; color: #34d399; white-space: nowrap; font-weight: 600; margin-top: 1px; }
+.rel-type {
+  margin-left: 10px; font-size: 9px; padding: 2px 8px; border-radius: 4px;
+  white-space: nowrap; margin-top: 2px;
+}
+.rel-via  { font-size: 9px; color: var(--muted); margin-top: 4px; display: block; }
+
+.one-many  { background: rgba(59,130,246,0.1); color: #60a5fa; border: 1px solid rgba(59,130,246,0.2); }
+.many-many { background: rgba(245,158,11,0.1); color: #fbbf24; border: 1px solid rgba(245,158,11,0.2); }
+.one-one   { background: rgba(16,185,129,0.1); color: #34d399; border: 1px solid rgba(16,185,129,0.2); }
+.ref       { background: rgba(139,92,246,0.1); color: #a78bfa; border: 1px solid rgba(139,92,246,0.2); }
+
+/* ── Data Flow ── */
+.flow-section {
+  max-width: 1400px; margin: 0 auto;
+}
+.flow-title {
+  font-family: 'JetBrains Mono', monospace; font-size: 10px;
+  letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted);
+  margin-bottom: 16px; padding-left: 4px;
+  border-left: 2px solid var(--border2); padding-left: 12px;
+}
+.flow-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(310px, 1fr)); gap: 10px;
+}
+.flow-card {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px;
+}
+.flow-card-title {
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+  margin-bottom: 12px; display: flex; align-items: center; gap: 8px;
+  font-family: 'JetBrains Mono', monospace;
+}
+.flow-card-title .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.flow-step {
+  display: flex; gap: 10px; align-items: flex-start; margin-bottom: 7px;
+}
+.flow-num {
+  font-family: 'JetBrains Mono', monospace; font-size: 9px;
+  color: var(--muted); min-width: 20px; flex-shrink: 0; margin-top: 2px;
+}
+.flow-text { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text); line-height: 1.6; }
+.flow-text em { color: var(--muted); font-style: normal; }
+
+/* ── Index section ── */
+.index-section {
+  max-width: 1400px; margin: 0 auto;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 14px; overflow: hidden;
+}
+.index-header {
+  padding: 14px 24px; border-bottom: 1px solid var(--border);
+  font-family: 'JetBrains Mono', monospace; font-size: 10px;
+  letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted);
+}
+.index-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 0;
+}
+.index-row {
+  padding: 12px 24px; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border);
+  font-family: 'JetBrains Mono', monospace;
+}
+.index-row:last-child { border-bottom: none; }
+.index-table { font-size: 10px; font-weight: 600; color: #60a5fa; margin-bottom: 4px; }
+.index-cols  { font-size: 10px; color: var(--text); }
+.index-cols span { color: #34d399; }
+.index-why   { font-size: 9px; color: var(--muted); margin-top: 3px; line-height: 1.5; }
+.index-tag   {
+  display: inline-block; font-size: 8px; padding: 1px 6px; border-radius: 3px;
+  margin-top: 4px; margin-right: 3px;
+  background: rgba(100,116,139,0.12); color: #94a3b8; border: 1px solid var(--border2);
+}
+
+/* ── Divider ── */
+.divider {
+  display: flex; align-items: center; gap: 14px;
+  max-width: 1400px; margin: 0 auto;
+}
+.divider-line { flex: 1; height: 1px; background: var(--border); }
+.divider-text {
+  font-family: 'JetBrains Mono', monospace; font-size: 9px;
+  color: var(--dim); letter-spacing: 0.12em; text-transform: uppercase; white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .tables-grid { grid-template-columns: 1fr; }
+  .rel-grid    { grid-template-columns: 1fr; }
+  .flow-grid   { grid-template-columns: 1fr; }
+  .index-grid  { grid-template-columns: 1fr; }
+  .rel-row     { flex-wrap: wrap; }
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <div class="header-pill">RIFT 2026 · Autonomous CI/CD Agent · Database Architecture</div>
+  <h1>Complete Database Schema</h1>
+  <p>PostgreSQL · ChromaDB · Redis · File System — tables, columns, types, indexes, relationships & data flows</p>
+</div>
+
+<!-- LEGEND -->
+<div class="db-legend">
+  <div class="db-leg-item"><div class="db-leg-dot" style="background:#3b82f6"></div>PostgreSQL — Primary relational store</div>
+  <div class="db-leg-item"><div class="db-leg-dot" style="background:#10b981"></div>ChromaDB — Vector knowledge base</div>
+  <div class="db-leg-item"><div class="db-leg-dot" style="background:#f59e0b"></div>Redis — Queue + ephemeral cache</div>
+  <div class="db-leg-item"><div class="db-leg-dot" style="background:#8b5cf6"></div>File System — Per-run output files</div>
+</div>
+<div class="col-legend">
+  <div class="col-leg-item"><span class="col-leg-icon">🔑</span>Primary Key</div>
+  <div class="col-leg-item"><span class="col-leg-icon">🔗</span>Foreign Key</div>
+  <div class="col-leg-item"><span class="col-leg-icon">⚡</span>Indexed</div>
+  <div class="col-leg-item"><span class="col-leg-icon">🔒</span>Unique constraint</div>
+  <div class="col-leg-item"><span class="col-leg-icon">◻</span>Nullable</div>
+  <div class="col-leg-item"><span class="col-leg-icon">★</span>Not null</div>
+</div>
+
+<div class="db-layout">
+
+<!-- ════════════════════════════════════════════════ -->
+<!--  POSTGRESQL                                      -->
+<!-- ════════════════════════════════════════════════ -->
+<div class="db-section pg">
+  <div class="db-section-header">
+    <div class="db-section-icon">🐘</div>
+    <div class="db-section-meta">
+      <div class="db-section-name">PostgreSQL</div>
+      <div class="db-section-sub">Railway · Free Tier · SQLAlchemy ORM · Alembic Migrations</div>
+    </div>
+    <div class="db-section-badge">6 Tables · Primary Store</div>
+  </div>
+
+  <div class="tables-grid">
+
+    <!-- runs -->
+    <div class="table-card">
+      <div class="table-header">
+        <span class="table-icon">🏃</span>
+        <span class="table-name">runs</span>
+        <span class="table-desc">One record per agent execution</span>
+      </div>
+      <div class="table-body">
+        <div class="col-row"><span class="col-flag">🔑</span><span class="col-name">run_id</span><span class="col-type">UUID</span><span class="col-note">PK · auto-generated</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">repo_url</span><span class="col-type">TEXT</span><span class="col-note">submitted repo URL</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">team_name</span><span class="col-type">VARCHAR(120)</span><span class="col-note"></span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">leader_name</span><span class="col-type">VARCHAR(120)</span><span class="col-note"></span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">branch_name</span><span class="col-type">VARCHAR(200)</span><span class="col-note">TEAM_LEADER_AI_Fix</span></div>
+        <div class="col-row"><span class="col-flag">⚡</span><span class="col-name">status</span><span class="col-type">ENUM</span><span class="col-note">queued|running|passed|failed|quarantined</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">start_time</span><span class="col-type">TIMESTAMPTZ</span><span class="col-note"></span></div>
+        <div class="col-row"><span class="col-flag">◻</span><span class="col-name">end_time</span><span class="col-type">TIMESTAMPTZ</span><span class="col-note">null until complete</span></div>
+        <div class="col-row"><span class="col-flag">◻</span><span class="col-name">total_time_secs</span><span class="col-type">FLOAT</span><span class="col-note">computed on finish</span></div>
+        <div class="col-row"><span class="col-flag">◻</span><span class="col-name">base_score</span><span class="col-type">INT</span><span class="col-note">always 100</span></div>
+        <div class="col-row"><span class="col-flag">◻</span><span class="col-name">speed_bonus</span><span class="col-type">INT</span><span class="col-note">+10 if under 5 min</span></div>
+        <div class="col-row"><span class="col-flag">◻</span><span class="col-name">efficiency_penalty</span><span class="col-type">INT</span><span class="col-note">-2 per commit over 20</span></div>
+        <div class="col-row"><span class="col-flag">◻</span><span class="col-name">final_score</span><span class="col-type">INT</span><span class="col-note">computed total</span></div>
+        <div class="col-row"><span class="col-flag">◻</span><span class="col-name">total_failures</span><span class="col-type">INT</span><span class="col-note">detected on first scan</span></div>
+        <div class="col-row"><span class="col-flag">◻</span><span class="col-name">total_fixes</span><span class="col-type">INT</span><span class="col-note">successfully applied</span></div>
+        <div class="col-row"><span class="col-flag">◻</span><span class="col-name">total_commits</span><span class="col-type">INT</span><span class="col-note">total pushed commits</span></div>
+        <div class="col-row"><span class="col-flag">◻</span><span class="col-name">total_iterations</span><span class="col-type">INT</span><span class="col-note">CI/CD retry count</span></div>
+        <div class="col-row"><span class="col-flag">◻</span><span class="col-name">detected_languages</span><span class="col-type">TEXT[]</span><span class="col-note">array of lang strings</span></div>
+        <div class="col-row"><span class="col-flag">◻</span><span class="col-name">total_llm_cost_usd</span><span class="col-type">FLOAT</span><span class="col-note">sum across all models</span></div>
+        <div class="col-row"><span class="col-flag">◻</span><span class="col-name">pdf_report_path</span><span class="col-type">TEXT</span><span class="col-note">path to generated PDF</span></div>
+        <div class="col-row"><span class="col-flag">◻</span><span class="col-name">quarantine_reason</span><span class="col-type">TEXT</span><span class="col-note">null unless flagged</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">created_at</span><span class="col-type">TIMESTAMPTZ</span><span class="col-note">DEFAULT now()</span></div>
+      </div>
+    </div>
+
+    <!-- fixes -->
+    <div class="table-card">
+      <div class="table-header">
+        <span class="table-icon">🔧</span>
+        <span class="table-name">fixes</span>
+        <span class="table-desc">One record per individual bug fix applied</span>
+      </div>
+      <div class="table-body">
+        <div class="col-row"><span class="col-flag">🔑</span><span class="col-name">fix_id</span><span class="col-type">UUID</span><span class="col-note">PK</span></div>
+        <div class="col-row"><span class="col-flag">🔗</span><span class="col-name">run_id</span><span class="col-type">UUID</span><span class="col-note">FK → runs.run_id</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">file_path</span><span class="col-type">TEXT</span><span class="col-note">relative path in repo</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">bug_type</span><span class="col-type">ENUM</span><span class="col-note">LINTING|SYNTAX|LOGIC|TYPE_ERROR|IMPORT|INDENTATION|PIPELINE_CONFIG|SECRET_LEAK</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">line_number</span><span class="col-type">INT</span><span class="col-note">detected line</span></div>
+        <div class="col-row"><span class="col-flag">◻</span><span class="col-name">line_end</span><span class="col-type">INT</span><span class="col-note">for multi-line bugs</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">description</span><span class="col-type">TEXT</span><span class="col-note">human-readable bug description</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">fix_description</span><span class="col-type">TEXT</span><span class="col-note">what the fix does</span></div>
+        <div class="col-row"><span class="col-flag">◻</span><span class="col-name">original_code</span><span class="col-type">TEXT</span><span class="col-note">code snippet before fix</span></div>
+        <div class="col-row"><span class="col-flag">◻</span><span class="col-name">fixed_code</span><span class="col-type">TEXT</span><span class="col-note">code snippet after fix</span></div>
+        <div class="col-row"><span class="col-flag">◻</span><span class="col-name">commit_sha</span><span class="col-type">VARCHAR(40)</span><span class="col-note">GitHub commit hash</span></div>
+        <div class="col-row"><span class="col-flag">◻</span><span class="col-name">commit_message</span><span class="col-type">TEXT</span><span class="col-note">[AI-AGENT] prefix enforced</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">status</span><span class="col-type">ENUM</span><span class="col-note">applied|failed|rolled_back|skipped</span></div>
+        <div class="col-row"><span class="col-flag">◻</span><span class="col-name">confidence_score</span><span class="col-type">FLOAT</span><span class="col-note">0.0 – 1.0</span></div>
+        <div class="col-row"><span class="col-flag">◻</span><span class="col-name">model_used</span><span class="col-type">VARCHAR(60)</span><span class="col-note">gpt-4o|claude-sonnet|gemini-flash|kb_match</span></div>
+        <div class="col-row"><span class="col-flag">◻</span><span class="col-name">consensus_votes</span><span class="col-type">JSONB</span><span class="col-note">{model: fix_hash} per model</span></div>
+        <div class="col-row"><span class="col-flag">◻</span><span class="col-name">kb_match</span><span class="col-type">BOOLEAN</span><span class="col-note">true if resolved from ChromaDB</span></div>
+        <div class="col-row"><span class="col-flag">◻</span><span class="col-name">causal_commit_sha</span><span class="col-type">VARCHAR(40)</span><span class="col-note">commit that introduced bug</span></div>
+        <div class="col-row"><span class="col-flag">◻</span><span class="col-name">causal_explanation</span><span class="col-type">TEXT</span><span class="col-note">NL attribution text</span></div>
+        <div class="col-row"><span class="col-flag">◻</span><span class="col-name">token_cost_usd</span><span class="col-type">FLOAT</span><span class="col-note">LLM cost for this fix</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">applied_at</span><span class="col-type">TIMESTAMPTZ</span><span class="col-note">DEFAULT now()</span></div>
+      </div>
+    </div>
+
+    <!-- ci_events -->
+    <div class="table-card">
+      <div class="table-header">
+        <span class="table-icon">🔄</span>
+        <span class="table-name">ci_events</span>
+        <span class="table-desc">One record per CI/CD pipeline run attempt</span>
+      </div>
+      <div class="table-body">
+        <div class="col-row"><span class="col-flag">🔑</span><span class="col-name">event_id</span><span class="col-type">UUID</span><span class="col-note">PK</span></div>
+        <div class="col-row"><span class="col-flag">🔗</span><span class="col-name">run_id</span><span class="col-type">UUID</span><span class="col-note">FK → runs.run_id</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">iteration</span><span class="col-type">INT</span><span class="col-note">1-indexed retry number</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">github_run_id</span><span class="col-type">BIGINT</span><span class="col-note">GitHub Actions run ID</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">status</span><span class="col-type">ENUM</span><span class="col-note">pending|running|passed|failed</span></div>
+        <div class="col-row"><span class="col-flag">◻</span><span class="col-name">failures_before</span><span class="col-type">INT</span><span class="col-note">failing tests at start</span></div>
+        <div class="col-row"><span class="col-flag">◻</span><span class="col-name">failures_after</span><span class="col-type">INT</span><span class="col-note">failing tests at end</span></div>
+        <div class="col-row"><span class="col-flag">◻</span><span class="col-name">new_failures</span><span class="col-type">TEXT[]</span><span class="col-note">regressions introduced</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">regression_detected</span><span class="col-type">BOOLEAN</span><span class="col-note">DEFAULT false</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">rollback_triggered</span><span class="col-type">BOOLEAN</span><span class="col-note">DEFAULT false</span></div>
+        <div class="col-row"><span class="col-flag">◻</span><span class="col-name">rollback_commit_sha</span><span class="col-type">VARCHAR(40)</span><span class="col-note">reverted commit</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">speculative_branch</span><span class="col-type">BOOLEAN</span><span class="col-note">true if parallel branch run</span></div>
+        <div class="col-row"><span class="col-flag">◻</span><span class="col-name">duration_secs</span><span class="col-type">FLOAT</span><span class="col-note">CI pipeline duration</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">triggered_at</span><span class="col-type">TIMESTAMPTZ</span><span class="col-note"></span></div>
+        <div class="col-row"><span class="col-flag">◻</span><span class="col-name">completed_at</span><span class="col-type">TIMESTAMPTZ</span><span class="col-note"></span></div>
+      </div>
+    </div>
+
+    <!-- execution_traces -->
+    <div class="table-card">
+      <div class="table-header">
+        <span class="table-icon">📜</span>
+        <span class="table-name">execution_traces</span>
+        <span class="table-desc">Full ordered log for Replay Mode</span>
+      </div>
+      <div class="table-body">
+        <div class="col-row"><span class="col-flag">🔑</span><span class="col-name">trace_id</span><span class="col-type">UUID</span><span class="col-note">PK</span></div>
+        <div class="col-row"><span class="col-flag">🔗</span><span class="col-name">run_id</span><span class="col-type">UUID</span><span class="col-note">FK → runs.run_id</span></div>
+        <div class="col-row"><span class="col-flag">⚡</span><span class="col-name">step_index</span><span class="col-type">INT</span><span class="col-note">ordering within run</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">agent_node</span><span class="col-type">VARCHAR(60)</span><span class="col-note">LangGraph node name</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">action_type</span><span class="col-type">VARCHAR(60)</span><span class="col-note">tool_call|decision|emit|error</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">action_label</span><span class="col-type">TEXT</span><span class="col-note">human-readable label</span></div>
+        <div class="col-row"><span class="col-flag">◻</span><span class="col-name">payload</span><span class="col-type">JSONB</span><span class="col-note">full event payload</span></div>
+        <div class="col-row"><span class="col-flag">◻</span><span class="col-name">thought_text</span><span class="col-type">TEXT</span><span class="col-note">agent reasoning text</span></div>
+        <div class="col-row"><span class="col-flag">◻</span><span class="col-name">related_fix_id</span><span class="col-type">UUID</span><span class="col-note">FK → fixes.fix_id (nullable)</span></div>
+        <div class="col-row"><span class="col-flag">◻</span><span class="col-name">related_ci_event_id</span><span class="col-type">UUID</span><span class="col-note">FK → ci_events.event_id (nullable)</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">emitted_at</span><span class="col-type">TIMESTAMPTZ</span><span class="col-note">DEFAULT now()</span></div>
+      </div>
+    </div>
+
+    <!-- strategy_weights -->
+    <div class="table-card">
+      <div class="table-header">
+        <span class="table-icon">🧬</span>
+        <span class="table-name">strategy_weights</span>
+        <span class="table-desc">Genetic algorithm evolution state</span>
+      </div>
+      <div class="table-body">
+        <div class="col-row"><span class="col-flag">🔑</span><span class="col-name">weight_id</span><span class="col-type">UUID</span><span class="col-note">PK</span></div>
+        <div class="col-row"><span class="col-flag">🔒</span><span class="col-name">bug_type</span><span class="col-type">ENUM</span><span class="col-note">unique per bug type</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">strategy_ast_rewrite</span><span class="col-type">FLOAT</span><span class="col-note">0.0 – 1.0</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">strategy_line_replace</span><span class="col-type">FLOAT</span><span class="col-note">0.0 – 1.0</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">strategy_fn_regenerate</span><span class="col-type">FLOAT</span><span class="col-note">0.0 – 1.0</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">strategy_kb_match</span><span class="col-type">FLOAT</span><span class="col-note">0.0 – 1.0</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">total_attempts</span><span class="col-type">INT</span><span class="col-note">lifetime attempts</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">total_successes</span><span class="col-type">INT</span><span class="col-note">lifetime successes</span></div>
+        <div class="col-row"><span class="col-flag">◻</span><span class="col-name">last_evolved_at</span><span class="col-type">TIMESTAMPTZ</span><span class="col-note">last GA step</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">generation</span><span class="col-type">INT</span><span class="col-note">GA generation number</span></div>
+      </div>
+    </div>
+
+    <!-- benchmark_scores -->
+    <div class="table-card">
+      <div class="table-header">
+        <span class="table-icon">📊</span>
+        <span class="table-name">benchmark_scores</span>
+        <span class="table-desc">Self-benchmarking vs rubric per run</span>
+      </div>
+      <div class="table-body">
+        <div class="col-row"><span class="col-flag">🔑</span><span class="col-name">bench_id</span><span class="col-type">UUID</span><span class="col-note">PK</span></div>
+        <div class="col-row"><span class="col-flag">🔗</span><span class="col-name">run_id</span><span class="col-type">UUID</span><span class="col-note">FK → runs.run_id</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">criterion</span><span class="col-type">VARCHAR(80)</span><span class="col-note">rubric criterion name</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">max_points</span><span class="col-type">INT</span><span class="col-note">rubric max for criterion</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">predicted_score</span><span class="col-type">INT</span><span class="col-note">agent self-prediction</span></div>
+        <div class="col-row"><span class="col-flag">◻</span><span class="col-name">actual_score</span><span class="col-type">INT</span><span class="col-note">computed actual score</span></div>
+        <div class="col-row"><span class="col-flag">◻</span><span class="col-name">calibration_gap</span><span class="col-type">INT</span><span class="col-note">actual - predicted</span></div>
+        <div class="col-row"><span class="col-flag">◻</span><span class="col-name">reasoning</span><span class="col-type">TEXT</span><span class="col-note">agent justification text</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">scored_at</span><span class="col-type">TIMESTAMPTZ</span><span class="col-note">DEFAULT now()</span></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="divider"><div class="divider-line"></div><div class="divider-text">Vector Database</div><div class="divider-line"></div></div>
+
+<!-- ════════════════════════════════════════════════ -->
+<!--  CHROMADB                                        -->
+<!-- ════════════════════════════════════════════════ -->
+<div class="db-section ch">
+  <div class="db-section-header">
+    <div class="db-section-icon">🔮</div>
+    <div class="db-section-meta">
+      <div class="db-section-name">ChromaDB</div>
+      <div class="db-section-sub">Self-hosted · text-embedding-3-small (OpenAI) · Semantic similarity search · Cross-repo shared</div>
+    </div>
+    <div class="db-section-badge">2 Collections · Vector KB</div>
+  </div>
+
+  <div class="tables-grid">
+
+    <!-- fix_patterns collection -->
+    <div class="table-card">
+      <div class="table-header">
+        <span class="table-icon">🧠</span>
+        <span class="table-name">fix_patterns</span>
+        <span class="table-desc">Successful fix embeddings for KB lookup</span>
+      </div>
+      <div class="table-body">
+        <div class="col-row"><span class="col-flag">🔑</span><span class="col-name">id</span><span class="col-type">STRING</span><span class="col-note">fix_id from PostgreSQL</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">embedding</span><span class="col-type">VECTOR(1536)</span><span class="col-note">text-embedding-3-small output</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">document</span><span class="col-type">STRING</span><span class="col-note">original_code + fixed_code + description combined</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">bug_type</span><span class="col-type">METADATA</span><span class="col-note">filterable</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">language</span><span class="col-type">METADATA</span><span class="col-note">python|javascript|typescript|java|go|rust</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">strategy_used</span><span class="col-type">METADATA</span><span class="col-note">ast_rewrite|line_replace|fn_regenerate</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">model_used</span><span class="col-type">METADATA</span><span class="col-note">which LLM generated this fix</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">confidence_score</span><span class="col-type">METADATA</span><span class="col-note">float 0.0–1.0</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">repo_url</span><span class="col-type">METADATA</span><span class="col-note">source repo (cross-repo tracking)</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">created_at</span><span class="col-type">METADATA</span><span class="col-note">ISO timestamp</span></div>
+      </div>
+    </div>
+
+    <!-- adversarial_tests collection -->
+    <div class="table-card">
+      <div class="table-header">
+        <span class="table-icon">⚔️</span>
+        <span class="table-name">adversarial_tests</span>
+        <span class="table-desc">Generated edge-case tests for hardening</span>
+      </div>
+      <div class="table-body">
+        <div class="col-row"><span class="col-flag">🔑</span><span class="col-name">id</span><span class="col-type">STRING</span><span class="col-note">uuid + run_id composite</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">embedding</span><span class="col-type">VECTOR(1536)</span><span class="col-note">test code embedding</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">document</span><span class="col-type">STRING</span><span class="col-note">full test code</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">target_file</span><span class="col-type">METADATA</span><span class="col-note">file the test targets</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">target_function</span><span class="col-type">METADATA</span><span class="col-note">function under test</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">bug_type_fixed</span><span class="col-type">METADATA</span><span class="col-note">bug this test guards against</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">language</span><span class="col-type">METADATA</span><span class="col-note">test language</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">ci_passed</span><span class="col-type">METADATA</span><span class="col-note">true if this test passed in final CI</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">run_id</span><span class="col-type">METADATA</span><span class="col-note">linked run</span></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="divider"><div class="divider-line"></div><div class="divider-text">Ephemeral Cache & Queue</div><div class="divider-line"></div></div>
+
+<!-- ════════════════════════════════════════════════ -->
+<!--  REDIS                                           -->
+<!-- ════════════════════════════════════════════════ -->
+<div class="db-section rd">
+  <div class="db-section-header">
+    <div class="db-section-icon">⚡</div>
+    <div class="db-section-meta">
+      <div class="db-section-name">Redis · Upstash</div>
+      <div class="db-section-sub">Free Tier · BullMQ backing store · Active run cache · WebSocket event buffer · TTL-managed</div>
+    </div>
+    <div class="db-section-badge">Key-Value · TTL-based</div>
+  </div>
+
+  <div class="tables-grid">
+
+    <!-- BullMQ Keys -->
+    <div class="table-card">
+      <div class="table-header">
+        <span class="table-icon">📬</span>
+        <span class="table-name">BullMQ Job Keys</span>
+        <span class="table-desc">Managed automatically by BullMQ</span>
+      </div>
+      <div class="table-body">
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">bull:agent-runs:waiting</span><span class="col-type">LIST</span><span class="col-note">queued job IDs</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">bull:agent-runs:active</span><span class="col-type">LIST</span><span class="col-note">in-progress job IDs</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">bull:agent-runs:completed</span><span class="col-type">ZSET</span><span class="col-note">completed job IDs + score</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">bull:agent-runs:failed</span><span class="col-type">ZSET</span><span class="col-note">failed job IDs + score</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">bull:agent-runs:{id}</span><span class="col-type">HASH</span><span class="col-note">full job payload + metadata</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">bull:pdf-export:waiting</span><span class="col-type">LIST</span><span class="col-note">PDF gen queue</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">bull:report-gen:waiting</span><span class="col-type">LIST</span><span class="col-note">results.json write queue</span></div>
+      </div>
+    </div>
+
+    <!-- Active Run Cache -->
+    <div class="table-card">
+      <div class="table-header">
+        <span class="table-icon">🏃</span>
+        <span class="table-name">Active Run Cache</span>
+        <span class="table-desc">TTL: 2 hours · auto-expires</span>
+      </div>
+      <div class="table-body">
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">run:{run_id}:status</span><span class="col-type">STRING</span><span class="col-note">current run status</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">run:{run_id}:current_node</span><span class="col-type">STRING</span><span class="col-note">active LangGraph node</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">run:{run_id}:iteration</span><span class="col-type">STRING</span><span class="col-note">current CI iteration</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">run:{run_id}:score</span><span class="col-type">STRING</span><span class="col-note">live score value (updates)</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">run:{run_id}:commit_count</span><span class="col-type">STRING</span><span class="col-note">current commit counter</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">run:{run_id}:cost_usd</span><span class="col-type">STRING</span><span class="col-note">running LLM cost</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">run:{run_id}:telemetry</span><span class="col-type">HASH</span><span class="col-note">cpu_pct, mem_mb, container</span></div>
+      </div>
+    </div>
+
+    <!-- WebSocket Event Buffer -->
+    <div class="table-card">
+      <div class="table-header">
+        <span class="table-icon">📡</span>
+        <span class="table-name">WebSocket Event Buffer</span>
+        <span class="table-desc">TTL: 30 min · replay on reconnect</span>
+      </div>
+      <div class="table-body">
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">events:{run_id}</span><span class="col-type">LIST</span><span class="col-note">ordered event log</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">events:{run_id}:count</span><span class="col-type">STRING</span><span class="col-note">event counter</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">socket:rooms</span><span class="col-type">HASH</span><span class="col-note">run_id → socket room map</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">session:{session_id}</span><span class="col-type">HASH</span><span class="col-note">Express session data</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">ratelimit:{ip}</span><span class="col-type">STRING</span><span class="col-note">request count for rate limiting</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">lock:run:{run_id}</span><span class="col-type">STRING</span><span class="col-note">distributed lock TTL:60s · prevents duplicate runs</span></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="divider"><div class="divider-line"></div><div class="divider-text">File System Output</div><div class="divider-line"></div></div>
+
+<!-- ════════════════════════════════════════════════ -->
+<!--  FILE SYSTEM                                     -->
+<!-- ════════════════════════════════════════════════ -->
+<div class="db-section fs">
+  <div class="db-section-header">
+    <div class="db-section-icon">📁</div>
+    <div class="db-section-meta">
+      <div class="db-section-name">File System</div>
+      <div class="db-section-sub">Per-run output files · Served via GET /results/:runId · PDF stored in /outputs</div>
+    </div>
+    <div class="db-section-badge">2 File Types · Output Layer</div>
+  </div>
+
+  <div class="tables-grid">
+
+    <!-- results.json -->
+    <div class="table-card">
+      <div class="table-header">
+        <span class="table-icon">📄</span>
+        <span class="table-name">results.json</span>
+        <span class="table-desc">Mandatory output · one per run · path: /outputs/{run_id}/results.json</span>
+      </div>
+      <div class="table-body">
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">run_id</span><span class="col-type">string</span><span class="col-note"></span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">repo_url</span><span class="col-type">string</span><span class="col-note"></span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">team_name</span><span class="col-type">string</span><span class="col-note"></span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">leader_name</span><span class="col-type">string</span><span class="col-note"></span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">branch_name</span><span class="col-type">string</span><span class="col-note">TEAM_LEADER_AI_Fix format</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">final_status</span><span class="col-type">string</span><span class="col-note">PASSED | FAILED</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">total_failures</span><span class="col-type">number</span><span class="col-note"></span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">total_fixes</span><span class="col-type">number</span><span class="col-note"></span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">total_time_secs</span><span class="col-type">number</span><span class="col-note"></span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">score</span><span class="col-type">object</span><span class="col-note">base, bonus, penalty, total</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">fixes</span><span class="col-type">array</span><span class="col-note">file, bug_type, line, commit, status</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">ci_log</span><span class="col-type">array</span><span class="col-note">iteration, status, timestamp per CI run</span></div>
+      </div>
+    </div>
+
+    <!-- PDF Report -->
+    <div class="table-card">
+      <div class="table-header">
+        <span class="table-icon">📑</span>
+        <span class="table-name">run_report.pdf</span>
+        <span class="table-desc">Generated by Puppeteer · path: /outputs/{run_id}/report.pdf</span>
+      </div>
+      <div class="table-body">
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">Cover Page</span><span class="col-type">section</span><span class="col-note">team, repo, branch, score summary</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">Score Breakdown</span><span class="col-type">section</span><span class="col-note">chart + base/bonus/penalty breakdown</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">Fixes Table</span><span class="col-type">section</span><span class="col-note">full fix log with confidence scores</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">CI/CD Timeline</span><span class="col-type">section</span><span class="col-note">per-iteration pass/fail + timestamps</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">Causal Attributions</span><span class="col-type">section</span><span class="col-note">NL explanations for each bug origin</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">Self-Benchmark</span><span class="col-type">section</span><span class="col-note">predicted vs actual per rubric criterion</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">Cost Summary</span><span class="col-type">section</span><span class="col-note">per-model token cost breakdown</span></div>
+        <div class="col-row"><span class="col-flag">★</span><span class="col-name">Strategy Evolution</span><span class="col-type">section</span><span class="col-note">current GA weights per bug type</span></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- RELATIONSHIPS -->
+<div class="rel-section">
+  <div class="rel-header">Table Relationships & Foreign Keys</div>
+  <div class="rel-grid">
+    <div class="rel-row">
+      <span class="rel-from">runs</span><span class="rel-arrow">→</span><span class="rel-to">fixes</span>
+      <span class="rel-type one-many">1 : MANY</span>
+      <span class="rel-via">via fixes.run_id FK</span>
+    </div>
+    <div class="rel-row">
+      <span class="rel-from">runs</span><span class="rel-arrow">→</span><span class="rel-to">ci_events</span>
+      <span class="rel-type one-many">1 : MANY</span>
+      <span class="rel-via">via ci_events.run_id FK</span>
+    </div>
+    <div class="rel-row">
+      <span class="rel-from">runs</span><span class="rel-arrow">→</span><span class="rel-to">execution_traces</span>
+      <span class="rel-type one-many">1 : MANY</span>
+      <span class="rel-via">via execution_traces.run_id FK</span>
+    </div>
+    <div class="rel-row">
+      <span class="rel-from">runs</span><span class="rel-arrow">→</span><span class="rel-to">benchmark_scores</span>
+      <span class="rel-type one-many">1 : MANY</span>
+      <span class="rel-via">one row per rubric criterion per run</span>
+    </div>
+    <div class="rel-row">
+      <span class="rel-from">fixes</span><span class="rel-arrow">→</span><span class="rel-to">execution_traces</span>
+      <span class="rel-type one-one">1 : 1</span>
+      <span class="rel-via">via traces.related_fix_id (nullable)</span>
+    </div>
+    <div class="rel-row">
+      <span class="rel-from">ci_events</span><span class="rel-arrow">→</span><span class="rel-to">execution_traces</span>
+      <span class="rel-type one-one">1 : 1</span>
+      <span class="rel-via">via traces.related_ci_event_id (nullable)</span>
+    </div>
+    <div class="rel-row">
+      <span class="rel-from">fixes</span><span class="rel-arrow">→</span><span class="rel-to">fix_patterns (Chroma)</span>
+      <span class="rel-type ref">REFERENCE</span>
+      <span class="rel-via">chroma id = fixes.fix_id (on success only)</span>
+    </div>
+    <div class="rel-row">
+      <span class="rel-from">strategy_weights</span><span class="rel-arrow">→</span><span class="rel-to">fixes</span>
+      <span class="rel-type ref">DERIVED</span>
+      <span class="rel-via">weights evolved from fixes.status aggregates</span>
+    </div>
+    <div class="rel-row">
+      <span class="rel-from">runs</span><span class="rel-arrow">→</span><span class="rel-to">Redis run:{id}:*</span>
+      <span class="rel-type ref">MIRRORED</span>
+      <span class="rel-via">live cache mirrors PostgreSQL run state</span>
+    </div>
+    <div class="rel-row">
+      <span class="rel-from">runs</span><span class="rel-arrow">→</span><span class="rel-to">results.json</span>
+      <span class="rel-type one-one">1 : 1</span>
+      <span class="rel-via">one file per run in /outputs/{run_id}/</span>
+    </div>
+  </div>
+</div>
+
+<!-- DATA FLOWS -->
+<div class="flow-section">
+  <div class="flow-title">Write & Read Data Flows</div>
+  <div class="flow-grid">
+
+    <div class="flow-card">
+      <div class="flow-card-title"><div class="dot" style="background:#3b82f6"></div>Run Lifecycle Writes (PostgreSQL)</div>
+      <div class="flow-step"><div class="flow-num">W1</div><div class="flow-text">Agent start → INSERT into <em>runs</em> (status=running)</div></div>
+      <div class="flow-step"><div class="flow-num">W2</div><div class="flow-text">Each fix committed → INSERT into <em>fixes</em> with commit_sha</div></div>
+      <div class="flow-step"><div class="flow-num">W3</div><div class="flow-text">Each CI run → INSERT into <em>ci_events</em> with iteration count</div></div>
+      <div class="flow-step"><div class="flow-num">W4</div><div class="flow-text">Each agent action → INSERT into <em>execution_traces</em> with step_index</div></div>
+      <div class="flow-step"><div class="flow-num">W5</div><div class="flow-text">Run complete → UPDATE <em>runs</em> (status, score, total_time)</div></div>
+      <div class="flow-step"><div class="flow-num">W6</div><div class="flow-text">Self-benchmarker → INSERT into <em>benchmark_scores</em> per criterion</div></div>
+      <div class="flow-step"><div class="flow-num">W7</div><div class="flow-text">GA step → UPDATE <em>strategy_weights</em> for bug types seen in run</div></div>
+    </div>
+
+    <div class="flow-card">
+      <div class="flow-card-title"><div class="dot" style="background:#10b981"></div>Knowledge Base Writes & Reads (ChromaDB)</div>
+      <div class="flow-step"><div class="flow-num">R1</div><div class="flow-text">Before LLM call → query <em>fix_patterns</em> by semantic similarity + bug_type filter</div></div>
+      <div class="flow-step"><div class="flow-num">R2</div><div class="flow-text">Top-k results returned → best match applied if score &gt; threshold</div></div>
+      <div class="flow-step"><div class="flow-num">R3</div><div class="flow-text">KB hit → set <em>fixes.kb_match = true</em>, skip LLM call entirely</div></div>
+      <div class="flow-step"><div class="flow-num">W1</div><div class="flow-text">Fix applied + CI passes → embed document via OpenAI → upsert into <em>fix_patterns</em></div></div>
+      <div class="flow-step"><div class="flow-num">W2</div><div class="flow-text">Adversarial test generated → embed → upsert into <em>adversarial_tests</em></div></div>
+      <div class="flow-step"><div class="flow-num">W3</div><div class="flow-text">Rolled-back fixes are never embedded — only confirmed successful fixes enter KB</div></div>
+    </div>
+
+    <div class="flow-card">
+      <div class="flow-card-title"><div class="dot" style="background:#f59e0b"></div>Real-time State (Redis)</div>
+      <div class="flow-step"><div class="flow-num">W1</div><div class="flow-text">Job enqueued → BullMQ writes to <em>bull:agent-runs:waiting</em></div></div>
+      <div class="flow-step"><div class="flow-num">W2</div><div class="flow-text">Agent start → SET <em>run:{id}:status</em>, <em>run:{id}:current_node</em></div></div>
+      <div class="flow-step"><div class="flow-num">W3</div><div class="flow-text">Each agent event → RPUSH to <em>events:{run_id}</em> list (WebSocket buffer)</div></div>
+      <div class="flow-step"><div class="flow-num">W4</div><div class="flow-text">psutil tick → HSET <em>run:{id}:telemetry</em> with cpu + mem values</div></div>
+      <div class="flow-step"><div class="flow-num">R1</div><div class="flow-text">New frontend connection → LRANGE <em>events:{run_id}</em> to catch up on missed events</div></div>
+      <div class="flow-step"><div class="flow-num">R2</div><div class="flow-text">Score card reads → GET <em>run:{id}:score</em> + <em>run:{id}:commit_count</em></div></div>
+      <div class="flow-step"><div class="flow-num">X1</div><div class="flow-text">Run complete → all <em>run:{id}:*</em> keys expire at TTL (2 hours)</div></div>
+    </div>
+
+    <div class="flow-card">
+      <div class="flow-card-title"><div class="dot" style="background:#8b5cf6"></div>File Output Writes</div>
+      <div class="flow-step"><div class="flow-num">W1</div><div class="flow-text">Run complete → self_benchmarker writes <em>results.json</em> to /outputs/{run_id}/</div></div>
+      <div class="flow-step"><div class="flow-num">W2</div><div class="flow-text">results.json path stored in <em>runs.pdf_report_path</em> (PostgreSQL)</div></div>
+      <div class="flow-step"><div class="flow-num">W3</div><div class="flow-text">pdf-export BullMQ job triggered → Puppeteer renders report → <em>report.pdf</em> written</div></div>
+      <div class="flow-step"><div class="flow-num">R1</div><div class="flow-text">Frontend GET /results/{run_id} → Express reads and serves <em>results.json</em></div></div>
+      <div class="flow-step"><div class="flow-num">R2</div><div class="flow-text">PDF download button → Express streams <em>report.pdf</em> as attachment</div></div>
+      <div class="flow-step"><div class="flow-num">R3</div><div class="flow-text">NL interrogation → agent reads <em>execution_traces</em> from PostgreSQL (not file system)</div></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- INDEXES -->
+<div class="index-section">
+  <div class="index-header">Database Indexes — Performance Critical Queries</div>
+  <div class="index-grid">
+    <div class="index-row">
+      <div class="index-table">runs</div>
+      <div class="index-cols">INDEX ON <span>status</span></div>
+      <div class="index-why">Filter active/queued runs for worker polling</div>
+      <span class="index-tag">B-Tree</span>
+    </div>
+    <div class="index-row">
+      <div class="index-table">runs</div>
+      <div class="index-cols">INDEX ON <span>created_at DESC</span></div>
+      <div class="index-why">Dashboard recent runs list sorted by time</div>
+      <span class="index-tag">B-Tree</span>
+    </div>
+    <div class="index-row">
+      <div class="index-table">fixes</div>
+      <div class="index-cols">INDEX ON <span>run_id</span></div>
+      <div class="index-why">Join fixes to run — most common query</div>
+      <span class="index-tag">B-Tree</span>
+    </div>
+    <div class="index-row">
+      <div class="index-table">fixes</div>
+      <div class="index-cols">INDEX ON <span>bug_type, status</span></div>
+      <div class="index-why">Strategy weight aggregation by bug type</div>
+      <span class="index-tag">Composite</span>
+    </div>
+    <div class="index-row">
+      <div class="index-table">fixes</div>
+      <div class="index-cols">INDEX ON <span>kb_match</span></div>
+      <div class="index-why">Count KB hits vs LLM calls for analytics</div>
+      <span class="index-tag">Partial</span>
+    </div>
+    <div class="index-row">
+      <div class="index-table">ci_events</div>
+      <div class="index-cols">INDEX ON <span>run_id, iteration</span></div>
+      <div class="index-why">CI timeline ordered by iteration per run</div>
+      <span class="index-tag">Composite</span>
+    </div>
+    <div class="index-row">
+      <div class="index-table">execution_traces</div>
+      <div class="index-cols">INDEX ON <span>run_id, step_index ASC</span></div>
+      <div class="index-why">Ordered replay trace fetch — Replay Mode</div>
+      <span class="index-tag">Composite</span>
+    </div>
+    <div class="index-row">
+      <div class="index-table">strategy_weights</div>
+      <div class="index-cols">UNIQUE ON <span>bug_type</span></div>
+      <div class="index-why">One weight row per bug type enforced</div>
+      <span class="index-tag">Unique</span>
+    </div>
+    <div class="index-row">
+      <div class="index-table">benchmark_scores</div>
+      <div class="index-cols">INDEX ON <span>run_id, criterion</span></div>
+      <div class="index-why">Fetch all rubric scores for a run at once</div>
+      <span class="index-tag">Composite</span>
+    </div>
+    <div class="index-row">
+      <div class="index-table">ChromaDB fix_patterns</div>
+      <div class="index-cols">HNSW ON <span>embedding</span> + metadata <span>bug_type</span></div>
+      <div class="index-why">Fast ANN search filtered by bug type</div>
+      <span class="index-tag">HNSW</span><span class="index-tag">Filtered</span>
+    </div>
+  </div>
+</div>
+
+</div><!-- end db-layout -->
+</body>
+</html>

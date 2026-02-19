@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>RIFT 2026 — System Architecture</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet" />
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #050810;
+    --bg2: #080d1a;
+    --panel: #0d1426;
+    --panel2: #111b30;
+    --border: #1e2d4a;
+    --border2: #243455;
+
+    --client:  #00d4ff;
+    --gateway: #7c3aed;
+    --queue:   #f59e0b;
+    --orch:    #10b981;
+    --agents:  #3b82f6;
+    --exec:    #ef4444;
+    --external:#f97316;
+    --data:    #8b5cf6;
+
+    --text:    #e2e8f0;
+    --muted:   #64748b;
+    --dim:     #334155;
+
+    --glow-c:  0 0 20px rgba(0,212,255,0.3);
+    --glow-p:  0 0 20px rgba(124,58,237,0.3);
+    --glow-g:  0 0 20px rgba(16,185,129,0.3);
+  }
+
+  html { font-size: 14px; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Syne', sans-serif;
+    min-height: 100vh;
+    padding: 40px 24px 80px;
+    background-image:
+      radial-gradient(ellipse 80% 50% at 50% -10%, rgba(124,58,237,0.12) 0%, transparent 70%),
+      radial-gradient(ellipse 60% 40% at 80% 100%, rgba(0,212,255,0.07) 0%, transparent 60%);
+  }
+
+  /* ── Header ── */
+  .header {
+    text-align: center;
+    margin-bottom: 56px;
+  }
+  .header-tag {
+    display: inline-block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    color: var(--client);
+    background: rgba(0,212,255,0.08);
+    border: 1px solid rgba(0,212,255,0.2);
+    padding: 4px 14px;
+    border-radius: 20px;
+    margin-bottom: 16px;
+    text-transform: uppercase;
+  }
+  .header h1 {
+    font-size: clamp(22px, 4vw, 38px);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+    background: linear-gradient(135deg, #fff 30%, #94a3b8 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 10px;
+  }
+  .header p {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--muted);
+    letter-spacing: 0.05em;
+  }
+
+  /* ── Legend ── */
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 20px;
+    justify-content: center;
+    margin-bottom: 48px;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .legend-dot {
+    width: 10px; height: 10px;
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+
+  /* ── Arch Grid ── */
+  .arch {
+    max-width: 1280px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  /* ── Row / Layer ── */
+  .layer {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+  }
+  .layer-label {
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    transform: rotate(180deg);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 12px 6px;
+    min-width: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border-right: 1px solid var(--border);
+  }
+  .layer-content {
+    flex: 1;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  /* ── Connector arrows between layers ── */
+  .connector {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 2px 0;
+    margin-left: 36px;
+  }
+  .arrow-down {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+  }
+  .arrow-line {
+    width: 1px;
+    height: 16px;
+    background: linear-gradient(to bottom, transparent, var(--dim));
+  }
+  .arrow-head {
+    width: 0; height: 0;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 6px solid var(--dim);
+  }
+  .conn-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    color: var(--dim);
+    letter-spacing: 0.05em;
+  }
+
+  /* ── Card ── */
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    flex: 1;
+    min-width: 160px;
+    position: relative;
+    transition: border-color 0.2s, transform 0.2s;
+  }
+  .card:hover {
+    transform: translateY(-2px);
+  }
+  .card-title {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    margin-bottom: 4px;
+  }
+  .card-sub {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+  .card-badge {
+    display: inline-block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    margin-top: 6px;
+    margin-right: 4px;
+  }
+  .card-tag {
+    position: absolute;
+    top: -1px; right: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 0 0 5px 5px;
+  }
+
+  /* ── Color variants ── */
+  .c-client  { border-color: rgba(0,212,255,0.35);  }
+  .c-client  .card-title { color: var(--client); }
+  .c-client:hover { border-color: var(--client); box-shadow: var(--glow-c); }
+  .c-client .card-tag { background: rgba(0,212,255,0.12); color: var(--client); }
+
+  .c-gateway { border-color: rgba(124,58,237,0.35); }
+  .c-gateway .card-title { color: var(--gateway); }
+  .c-gateway:hover { border-color: var(--gateway); box-shadow: var(--glow-p); }
+  .c-gateway .card-tag { background: rgba(124,58,237,0.12); color: var(--gateway); }
+
+  .c-queue   { border-color: rgba(245,158,11,0.35); }
+  .c-queue   .card-title { color: var(--queue); }
+  .c-queue:hover { border-color: var(--queue); box-shadow: 0 0 20px rgba(245,158,11,0.3); }
+  .c-queue .card-tag { background: rgba(245,158,11,0.12); color: var(--queue); }
+
+  .c-orch    { border-color: rgba(16,185,129,0.35); }
+  .c-orch    .card-title { color: var(--orch); }
+  .c-orch:hover { border-color: var(--orch); box-shadow: var(--glow-g); }
+  .c-orch .card-tag { background: rgba(16,185,129,0.12); color: var(--orch); }
+
+  .c-agents  { border-color: rgba(59,130,246,0.35); }
+  .c-agents  .card-title { color: var(--agents); }
+  .c-agents:hover { border-color: var(--agents); box-shadow: 0 0 20px rgba(59,130,246,0.3); }
+  .c-agents .card-tag { background: rgba(59,130,246,0.12); color: var(--agents); }
+
+  .c-exec    { border-color: rgba(239,68,68,0.35);  }
+  .c-exec    .card-title { color: var(--exec); }
+  .c-exec:hover { border-color: var(--exec); box-shadow: 0 0 20px rgba(239,68,68,0.3); }
+  .c-exec .card-tag { background: rgba(239,68,68,0.12); color: var(--exec); }
+
+  .c-external{ border-color: rgba(249,115,22,0.35); }
+  .c-external .card-title { color: var(--external); }
+  .c-external:hover { border-color: var(--external); box-shadow: 0 0 20px rgba(249,115,22,0.3); }
+  .c-external .card-tag { background: rgba(249,115,22,0.12); color: var(--external); }
+
+  .c-data    { border-color: rgba(139,92,246,0.35); }
+  .c-data    .card-title { color: var(--data); }
+  .c-data:hover { border-color: var(--data); box-shadow: 0 0 20px rgba(139,92,246,0.3); }
+  .c-data .card-tag { background: rgba(139,92,246,0.12); color: var(--data); }
+
+  /* badge colors */
+  .b-green  { background: rgba(16,185,129,0.12); color: #10b981; border: 1px solid rgba(16,185,129,0.25); }
+  .b-blue   { background: rgba(59,130,246,0.12); color: #60a5fa; border: 1px solid rgba(59,130,246,0.25); }
+  .b-red    { background: rgba(239,68,68,0.12);  color: #f87171; border: 1px solid rgba(239,68,68,0.25); }
+  .b-orange { background: rgba(249,115,22,0.12); color: #fb923c; border: 1px solid rgba(249,115,22,0.25); }
+  .b-yellow { background: rgba(245,158,11,0.12); color: #fbbf24; border: 1px solid rgba(245,158,11,0.25); }
+  .b-purple { background: rgba(139,92,246,0.12); color: #a78bfa; border: 1px solid rgba(139,92,246,0.25); }
+  .b-cyan   { background: rgba(0,212,255,0.10);  color: #67e8f9; border: 1px solid rgba(0,212,255,0.2); }
+  .b-gray   { background: rgba(100,116,139,0.12);color: #94a3b8; border: 1px solid rgba(100,116,139,0.25); }
+
+  /* ── Wide card variant ── */
+  .card-wide { flex: 2; min-width: 280px; }
+  .card-narrow { flex: 0.7; min-width: 130px; }
+
+  /* ── Section divider ── */
+  .divider {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin: 10px 0 4px;
+    margin-left: 36px;
+  }
+  .divider-line { flex: 1; height: 1px; background: var(--border); }
+  .divider-text {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    color: var(--dim);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  /* ── Flow arrows SVG overlay ── */
+  .flow-section {
+    position: relative;
+  }
+
+  /* ── Data flow callout ── */
+  .flow-grid {
+    max-width: 1280px;
+    margin: 48px auto 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 12px;
+  }
+  .flow-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+  }
+  .flow-card-title {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .flow-card-title .dot {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  }
+  .flow-step {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    margin-bottom: 8px;
+  }
+  .flow-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+    min-width: 18px;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .flow-text {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text);
+    line-height: 1.6;
+  }
+  .flow-text span {
+    color: var(--muted);
+  }
+
+  /* ── Internal comms table ── */
+  .comms-section {
+    max-width: 1280px;
+    margin: 12px auto 0;
+  }
+  .comms-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 12px;
+    padding-left: 4px;
+    border-left: 2px solid var(--border2);
+    padding-left: 10px;
+  }
+  .comms-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 8px;
+  }
+  .comm-row {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+  }
+  .comm-from { color: #94a3b8; }
+  .comm-arrow { color: var(--dim); }
+  .comm-to   { color: #e2e8f0; font-weight: 600; }
+  .comm-proto {
+    margin-left: auto;
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-size: 9px;
+    background: rgba(100,116,139,0.15);
+    color: var(--muted);
+    border: 1px solid var(--border);
+    white-space: nowrap;
+  }
+
+  /* Responsive */
+  @media (max-width: 700px) {
+    .layer-label { display: none; }
+    .layer { gap: 6px; }
+    .card { min-width: 140px; padding: 10px 12px; }
+    .card-title { font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <div class="header-tag">RIFT 2026 · AI/ML Track · System Architecture</div>
+  <h1>Autonomous CI/CD Healing Agent</h1>
+  <p>Full-stack multi-agent architecture · Component interaction map · Data flow reference</p>
+</div>
+
+<!-- LEGEND -->
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot" style="background:var(--client)"></div>Client Layer</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--gateway)"></div>API Gateway</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--queue)"></div>Job Queue</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--orch)"></div>Orchestration</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--agents)"></div>Agent Nodes</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--exec)"></div>Execution Sandbox</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--external)"></div>External APIs</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--data)"></div>Data Persistence</div>
+</div>
+
+<!-- ARCHITECTURE -->
+<div class="arch">
+
+  <!-- LAYER 1: CLIENT -->
+  <div class="layer">
+    <div class="layer-label" style="color:var(--client)">CLIENT</div>
+    <div class="layer-content">
+      <div class="card c-client card-wide">
+        <div class="card-tag">Deployed · Vercel</div>
+        <div class="card-title">React Dashboard (Vite)</div>
+        <div class="card-sub">Zustand · React Query · Socket.io Client · Framer Motion · Monaco Editor</div>
+        <div>
+          <span class="card-badge b-cyan">Input Panel</span>
+          <span class="card-badge b-cyan">Run Summary Card</span>
+          <span class="card-badge b-cyan">Score Simulator</span>
+          <span class="card-badge b-cyan">Fixes Table + Diff Viewer</span>
+        </div>
+        <div>
+          <span class="card-badge b-blue">CI/CD Timeline</span>
+          <span class="card-badge b-blue">3D Dependency Graph · Three.js</span>
+          <span class="card-badge b-blue">Live Thought Stream</span>
+          <span class="card-badge b-blue">Telemetry Sparklines</span>
+        </div>
+        <div>
+          <span class="card-badge b-purple">NL Interrogation Chat</span>
+          <span class="card-badge b-purple">Heatmap Calendar · Recharts</span>
+          <span class="card-badge b-purple">PDF Report Export</span>
+          <span class="card-badge b-purple">Replay Mode</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CONNECTOR 1 -->
+  <div class="connector">
+    <div class="arrow-down"><div class="arrow-line"></div><div class="arrow-head"></div></div>
+    <div class="conn-label">HTTP REST · POST /run-agent</div>
+    <div class="arrow-down" style="transform:scaleY(-1);margin-top:10px"><div class="arrow-line"></div><div class="arrow-head"></div></div>
+    <div class="conn-label">WebSocket · real-time events stream</div>
+  </div>
+
+  <!-- LAYER 2: GATEWAY -->
+  <div class="layer">
+    <div class="layer-label" style="color:var(--gateway)">GATEWAY</div>
+    <div class="layer-content">
+      <div class="card c-gateway">
+        <div class="card-tag">Railway</div>
+        <div class="card-title">Node.js + Express API</div>
+        <div class="card-sub">Route: POST /run-agent<br/>Route: GET /results/:runId<br/>Route: GET /replay/:runId</div>
+        <div>
+          <span class="card-badge b-purple">Auth Middleware</span>
+          <span class="card-badge b-purple">Rate Limiter</span>
+        </div>
+      </div>
+      <div class="card c-gateway">
+        <div class="card-tag">Railway</div>
+        <div class="card-title">Socket.io Server</div>
+        <div class="card-sub">Broadcasts: thought_event<br/>Broadcasts: fix_applied<br/>Broadcasts: ci_update<br/>Broadcasts: telemetry_tick</div>
+        <div><span class="card-badge b-purple">Namespaced by runId</span></div>
+      </div>
+      <div class="card c-gateway card-narrow">
+        <div class="card-tag">Vercel KV</div>
+        <div class="card-title">Session Store</div>
+        <div class="card-sub">Active run state<br/>WebSocket room map<br/>Short-lived cache</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CONNECTOR 2 -->
+  <div class="connector">
+    <div class="arrow-down"><div class="arrow-line"></div><div class="arrow-head"></div></div>
+    <div class="conn-label">Enqueue job · BullMQ producer</div>
+  </div>
+
+  <!-- LAYER 3: QUEUE -->
+  <div class="layer">
+    <div class="layer-label" style="color:var(--queue)">QUEUE</div>
+    <div class="layer-content">
+      <div class="card c-queue">
+        <div class="card-tag">Upstash (Free Tier)</div>
+        <div class="card-title">Redis</div>
+        <div class="card-sub">BullMQ backing store<br/>Job state · retries · delays<br/>Exponential backoff config</div>
+        <div><span class="card-badge b-yellow">Persistent across restarts</span></div>
+      </div>
+      <div class="card c-queue card-wide">
+        <div class="card-tag">Node.js Worker</div>
+        <div class="card-title">BullMQ Worker Pool</div>
+        <div class="card-sub">Concurrency: configurable (default 3 parallel runs)<br/>Queues: agent-runs · pdf-export · report-gen<br/>Failed job retry · dead-letter logging</div>
+        <div>
+          <span class="card-badge b-yellow">Multi-repo parallel dispatch</span>
+          <span class="card-badge b-yellow">Job priority by team</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CONNECTOR 3 -->
+  <div class="connector">
+    <div class="arrow-down"><div class="arrow-line"></div><div class="arrow-head"></div></div>
+    <div class="conn-label">HTTP · POST /agent/start — FastAPI trigger</div>
+  </div>
+
+  <!-- LAYER 4: ORCHESTRATION -->
+  <div class="layer">
+    <div class="layer-label" style="color:var(--orch)">ORCHESTRATION</div>
+    <div class="layer-content">
+      <div class="card c-orch card-narrow">
+        <div class="card-tag">Railway · Python</div>
+        <div class="card-title">FastAPI Service</div>
+        <div class="card-sub">POST /agent/start<br/>GET /agent/status<br/>SSE /agent/stream<br/>POST /agent/query</div>
+        <div><span class="card-badge b-green">Pydantic models</span></div>
+      </div>
+      <div class="card c-orch card-wide">
+        <div class="card-tag">LangGraph · Python</div>
+        <div class="card-title">Agent Orchestration Graph</div>
+        <div class="card-sub">Stateful directed graph · conditional edge routing · shared AgentState object passed between nodes</div>
+        <div>
+          <span class="card-badge b-green">Node: repo_scanner</span>
+          <span class="card-badge b-green">Node: ast_analyzer</span>
+          <span class="card-badge b-green">Node: test_runner</span>
+          <span class="card-badge b-green">Node: dependency_mapper</span>
+          <span class="card-badge b-green">Node: fix_generator</span>
+          <span class="card-badge b-green">Node: critic_agent</span>
+          <span class="card-badge b-green">Node: commit_optimizer</span>
+          <span class="card-badge b-green">Node: ci_monitor</span>
+          <span class="card-badge b-green">Node: rollback_agent</span>
+          <span class="card-badge b-green">Node: adversarial_tester</span>
+          <span class="card-badge b-green">Node: self_benchmarker</span>
+        </div>
+      </div>
+      <div class="card c-orch card-narrow">
+        <div class="card-tag">In-memory</div>
+        <div class="card-title">AgentState</div>
+        <div class="card-sub">repo_url · team info<br/>failures[] · fixes[]<br/>iteration count<br/>cost_tracker<br/>confidence_scores<br/>execution_trace[]</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CONNECTOR 4 -->
+  <div class="connector">
+    <div class="arrow-down"><div class="arrow-line"></div><div class="arrow-head"></div></div>
+    <div class="conn-label">Agent nodes dispatch tasks to sub-agents and tools</div>
+  </div>
+
+  <!-- LAYER 5: AGENTS -->
+  <div class="layer">
+    <div class="layer-label" style="color:var(--agents)">AGENTS</div>
+    <div class="layer-content">
+      <div class="card c-agents">
+        <div class="card-tag">Sub-agent</div>
+        <div class="card-title">Repo Scanner Agent</div>
+        <div class="card-sub">Malicious repo pre-scan<br/>Secret leak detection<br/>Language auto-detection<br/>Dependency graph build<br/>Cluster partitioning</div>
+        <div><span class="card-badge b-blue">Tools: PyGithub · detect-secrets · Bandit</span></div>
+      </div>
+      <div class="card c-agents">
+        <div class="card-tag">Sub-agent</div>
+        <div class="card-title">AST Analyzer Agent</div>
+        <div class="card-sub">tree-sitter multi-lang parse<br/>Python ast module<br/>Predictive risk scoring<br/>Root cause dependency map<br/>Causal git blame attribution</div>
+        <div><span class="card-badge b-blue">Tools: tree-sitter · ast · GitPython</span></div>
+      </div>
+      <div class="card c-agents">
+        <div class="card-tag">Sub-agent · Parallel</div>
+        <div class="card-title">Multi-Model Fix Agent</div>
+        <div class="card-sub">Routes bugs by complexity<br/>Calls 3 LLMs in parallel<br/>Consensus voting logic<br/>Meta-arbitrator on split<br/>Counterfactual simulation</div>
+        <div>
+          <span class="card-badge b-blue">GPT-4o · Claude Sonnet · Gemini Flash</span>
+          <span class="card-badge b-blue">Cost-aware routing</span>
+        </div>
+      </div>
+      <div class="card c-agents">
+        <div class="card-tag">Sub-agent</div>
+        <div class="card-title">Critic Agent</div>
+        <div class="card-sub">Reviews each fix before commit<br/>AST validity re-check<br/>Regression risk scoring<br/>Confidence score compute<br/>Rejects low-confidence fixes</div>
+        <div><span class="card-badge b-blue">ChromaDB KB lookup first</span></div>
+      </div>
+      <div class="card c-agents">
+        <div class="card-tag">Sub-agent</div>
+        <div class="card-title">CI Monitor + Rollback</div>
+        <div class="card-sub">GitHub Actions polling<br/>Regression diff detection<br/>Auto git revert on regression<br/>Adaptive retry strategy<br/>Speculative branch merge</div>
+        <div><span class="card-badge b-blue">Tools: PyGithub · GitPython</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CONNECTOR 5 -->
+  <div class="connector">
+    <div class="arrow-down"><div class="arrow-line"></div><div class="arrow-head"></div></div>
+    <div class="conn-label">Code executed inside isolated containers</div>
+  </div>
+
+  <!-- LAYER 6: EXEC SANDBOX -->
+  <div class="layer">
+    <div class="layer-label" style="color:var(--exec)">SANDBOX</div>
+    <div class="layer-content">
+      <div class="card c-exec">
+        <div class="card-tag">Docker SDK · Python</div>
+        <div class="card-title">Python 3.11 Sandbox</div>
+        <div class="card-sub">pytest · Pylint · Flake8 · Black<br/>ast module · Bandit · detect-secrets<br/>Network: ISOLATED (--network none)</div>
+        <div><span class="card-badge b-red">psutil telemetry stream</span></div>
+      </div>
+      <div class="card c-exec">
+        <div class="card-tag">Docker SDK · Node</div>
+        <div class="card-title">Node 20 Sandbox</div>
+        <div class="card-sub">Jest · ESLint · Prettier · tsc<br/>ts-jest · TypeScript support<br/>Network: ISOLATED</div>
+        <div><span class="card-badge b-red">psutil telemetry stream</span></div>
+      </div>
+      <div class="card c-exec card-narrow">
+        <div class="card-tag">On-demand</div>
+        <div class="card-title">Java / Go / Rust</div>
+        <div class="card-sub">Spun up only when<br/>detected in repo<br/>JUnit · go test<br/>cargo test</div>
+        <div><span class="card-badge b-red">Auto-destroy after run</span></div>
+      </div>
+      <div class="card c-exec card-narrow">
+        <div class="card-tag">Puppeteer</div>
+        <div class="card-title">PDF Renderer</div>
+        <div class="card-sub">Headless Chrome<br/>Renders run report<br/>Exports downloadable PDF</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="divider">
+    <div class="divider-line"></div>
+    <div class="divider-text">External Integrations</div>
+    <div class="divider-line"></div>
+  </div>
+
+  <!-- LAYER 7: EXTERNAL APIs -->
+  <div class="layer">
+    <div class="layer-label" style="color:var(--external)">EXTERNAL</div>
+    <div class="layer-content">
+      <div class="card c-external">
+        <div class="card-tag">API Key · Free $5 credit</div>
+        <div class="card-title">OpenAI API</div>
+        <div class="card-sub">GPT-4o — complex fixes<br/>GPT-4o-mini — simple fixes<br/>text-embedding-3-small — vector KB</div>
+        <div><span class="card-badge b-orange">Used in: Fix Agent · KB embeddings</span></div>
+      </div>
+      <div class="card c-external">
+        <div class="card-tag">API Key · Free $5 credit</div>
+        <div class="card-title">Anthropic API</div>
+        <div class="card-sub">Claude Sonnet 3.5<br/>Consensus voter #2<br/>Critic fallback model</div>
+        <div><span class="card-badge b-orange">Used in: Fix Agent · Critic Agent</span></div>
+      </div>
+      <div class="card c-external">
+        <div class="card-tag">API Key · Free 1M tok/day</div>
+        <div class="card-title">Google Gemini API</div>
+        <div class="card-sub">Gemini 1.5 Flash<br/>Consensus voter #3<br/>Fast + free at scale</div>
+        <div><span class="card-badge b-orange">Used in: Fix Agent</span></div>
+      </div>
+      <div class="card c-external">
+        <div class="card-tag">GitHub PAT · Free</div>
+        <div class="card-title">GitHub REST API</div>
+        <div class="card-sub">Clone repos · Create branches<br/>Push commits · Monitor Actions<br/>git blame · pre-scan metadata</div>
+        <div>
+          <span class="card-badge b-orange">PyGithub · GitPython</span>
+          <span class="card-badge b-orange">GitHub Actions CI/CD</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="divider">
+    <div class="divider-line"></div>
+    <div class="divider-text">Persistence Layer</div>
+    <div class="divider-line"></div>
+  </div>
+
+  <!-- LAYER 8: DATA -->
+  <div class="layer">
+    <div class="layer-label" style="color:var(--data)">DATA</div>
+    <div class="layer-content">
+      <div class="card c-data">
+        <div class="card-tag">Railway · Free tier</div>
+        <div class="card-title">PostgreSQL</div>
+        <div class="card-sub">SQLAlchemy ORM · Alembic migrations<br/>Tables: runs · fixes · ci_events · traces<br/>strategy_weights · self_benchmark_scores</div>
+        <div>
+          <span class="card-badge b-purple">Stores full replay trace</span>
+          <span class="card-badge b-purple">Strategy evolution weights</span>
+        </div>
+      </div>
+      <div class="card c-data">
+        <div class="card-tag">Self-hosted · Free</div>
+        <div class="card-title">ChromaDB</div>
+        <div class="card-sub">Vector DB for fix KB<br/>Stores: fix patterns + embeddings<br/>Cross-repo shared memory<br/>Semantic similarity search pre-LLM</div>
+        <div>
+          <span class="card-badge b-purple">Pattern Match badge trigger</span>
+          <span class="card-badge b-purple">Agent memory across repos</span>
+        </div>
+      </div>
+      <div class="card c-data card-narrow">
+        <div class="card-tag">Local filesystem</div>
+        <div class="card-title">results.json</div>
+        <div class="card-sub">Generated per run<br/>Fixes array · CI log<br/>Score breakdown<br/>Served via GET /results</div>
+      </div>
+      <div class="card c-data card-narrow">
+        <div class="card-tag">Upstash Redis</div>
+        <div class="card-title">Run Cache</div>
+        <div class="card-sub">Active run snapshots<br/>WebSocket event buffer<br/>TTL-based cleanup</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+<!-- END ARCH -->
+
+
+<!-- DATA FLOW SECTION -->
+<div class="flow-grid">
+
+  <div class="flow-card">
+    <div class="flow-card-title">
+      <div class="dot" style="background:var(--client)"></div>
+      Request → Agent Trigger Flow
+    </div>
+    <div class="flow-step"><div class="flow-num">01</div><div class="flow-text">User submits repo URL + team info via React dashboard <span>→ POST /run-agent</span></div></div>
+    <div class="flow-step"><div class="flow-num">02</div><div class="flow-text">Express validates input, creates runId, <span>enqueues BullMQ job</span></div></div>
+    <div class="flow-step"><div class="flow-num">03</div><div class="flow-text">BullMQ worker picks up job, <span>calls FastAPI POST /agent/start</span></div></div>
+    <div class="flow-step"><div class="flow-num">04</div><div class="flow-text">FastAPI initialises AgentState, <span>starts LangGraph execution</span></div></div>
+    <div class="flow-step"><div class="flow-num">05</div><div class="flow-text">Every agent node emits events via SSE → <span>Socket.io broadcasts to frontend</span></div></div>
+  </div>
+
+  <div class="flow-card">
+    <div class="flow-card-title">
+      <div class="dot" style="background:var(--agents)"></div>
+      Analysis → Fix → Commit Flow
+    </div>
+    <div class="flow-step"><div class="flow-num">01</div><div class="flow-text">Repo Scanner clones repo, runs malicious scan + secret detection</div></div>
+    <div class="flow-step"><div class="flow-num">02</div><div class="flow-text">AST Analyzer builds dependency graph, detects bugs, scores risk</div></div>
+    <div class="flow-step"><div class="flow-num">03</div><div class="flow-text">Test Runner spawns Docker sandbox, <span>captures all failures</span></div></div>
+    <div class="flow-step"><div class="flow-num">04</div><div class="flow-text">Fix Agent searches ChromaDB first → if miss, calls 3 LLMs in parallel → <span>consensus vote</span></div></div>
+    <div class="flow-step"><div class="flow-num">05</div><div class="flow-text">Critic reviews fix → Commit Optimizer batches → <span>GitPython push to branch</span></div></div>
+  </div>
+
+  <div class="flow-card">
+    <div class="flow-card-title">
+      <div class="dot" style="background:var(--orch)"></div>
+      CI Monitor → Retry Loop
+    </div>
+    <div class="flow-step"><div class="flow-num">01</div><div class="flow-text">After push, GitHub Actions triggers automatically on new branch</div></div>
+    <div class="flow-step"><div class="flow-num">02</div><div class="flow-text">CI Monitor polls GitHub API every 15s for workflow run status</div></div>
+    <div class="flow-step"><div class="flow-num">03</div><div class="flow-text">On failure: diff analysis checks for regressions vs previous run</div></div>
+    <div class="flow-step"><div class="flow-num">04</div><div class="flow-text">Regression detected → <span>auto git revert</span> that commit only → retry fix</div></div>
+    <div class="flow-step"><div class="flow-num">05</div><div class="flow-text">Adaptive retry with backoff · max 5 iterations · Speculative branch on uncertainty</div></div>
+  </div>
+
+  <div class="flow-card">
+    <div class="flow-card-title">
+      <div class="dot" style="background:var(--data)"></div>
+      Persistence + Feedback Loop
+    </div>
+    <div class="flow-step"><div class="flow-num">01</div><div class="flow-text">Every fix outcome written to PostgreSQL: <span>fix type · model used · success</span></div></div>
+    <div class="flow-step"><div class="flow-num">02</div><div class="flow-text">Successful fixes embedded via OpenAI → stored in ChromaDB for future runs</div></div>
+    <div class="flow-step"><div class="flow-num">03</div><div class="flow-text">Strategy weights updated in PostgreSQL via genetic algorithm step</div></div>
+    <div class="flow-step"><div class="flow-num">04</div><div class="flow-text">Full execution trace saved → <span>enables Replay Mode</span></div></div>
+    <div class="flow-step"><div class="flow-num">05</div><div class="flow-text">results.json written → Self-Benchmarker scores run → PDF report generated</div></div>
+  </div>
+
+</div>
+
+<!-- COMMS PROTOCOL TABLE -->
+<div class="comms-section" style="margin-top:40px">
+  <div class="comms-title">Inter-service communication protocols</div>
+  <div class="comms-grid">
+    <div class="comm-row"><span class="comm-from">React Dashboard</span><span class="comm-arrow"> → </span><span class="comm-to">Express API</span><div class="comm-proto">HTTP REST (JSON)</div></div>
+    <div class="comm-row"><span class="comm-from">Express API</span><span class="comm-arrow"> → </span><span class="comm-to">React Dashboard</span><div class="comm-proto">WebSocket (Socket.io)</div></div>
+    <div class="comm-row"><span class="comm-from">Express API</span><span class="comm-arrow"> → </span><span class="comm-to">BullMQ</span><div class="comm-proto">Redis (BullMQ)</div></div>
+    <div class="comm-row"><span class="comm-from">BullMQ Worker</span><span class="comm-arrow"> → </span><span class="comm-to">FastAPI</span><div class="comm-proto">HTTP REST</div></div>
+    <div class="comm-row"><span class="comm-from">FastAPI</span><span class="comm-arrow"> → </span><span class="comm-to">Socket.io Server</span><div class="comm-proto">Internal SSE bridge</div></div>
+    <div class="comm-row"><span class="comm-from">LangGraph Nodes</span><span class="comm-arrow"> → </span><span class="comm-to">LLM APIs</span><div class="comm-proto">HTTPS REST (parallel)</div></div>
+    <div class="comm-row"><span class="comm-from">Agent</span><span class="comm-arrow"> → </span><span class="comm-to">Docker Sandboxes</span><div class="comm-proto">Docker SDK (subprocess)</div></div>
+    <div class="comm-row"><span class="comm-from">Agent</span><span class="comm-arrow"> → </span><span class="comm-to">GitHub API</span><div class="comm-proto">HTTPS REST (PAT auth)</div></div>
+    <div class="comm-row"><span class="comm-from">Agent</span><span class="comm-arrow"> → </span><span class="comm-to">ChromaDB</span><div class="comm-proto">HTTP (local service)</div></div>
+    <div class="comm-row"><span class="comm-from">Agent</span><span class="comm-arrow"> → </span><span class="comm-to">PostgreSQL</span><div class="comm-proto">SQLAlchemy (TCP)</div></div>
+    <div class="comm-row"><span class="comm-from">Sandbox Containers</span><span class="comm-arrow"> → </span><span class="comm-to">Agent</span><div class="comm-proto">stdout / stderr capture</div></div>
+    <div class="comm-row"><span class="comm-from">psutil</span><span class="comm-arrow"> → </span><span class="comm-to">Socket.io Stream</span><div class="comm-proto">Polling → WebSocket emit</div></div>
+  </div>
+</div>
+
+</body>
+</html>

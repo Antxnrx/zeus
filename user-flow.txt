@@ -1,0 +1,489 @@
+================================================================================
+  RIFT 2026 — AUTONOMOUS CI/CD HEALING AGENT
+  END-TO-END USER FLOW
+================================================================================
+
+  From repo submission to final results — every step, decision, and loop-back
+  23 Steps across 7 Phases
+
+  NODE TYPE LEGEND
+  ────────────────
+  [USER]      User-triggered action
+  [SYSTEM]    Backend / infrastructure process
+  [AGENT]     LangGraph agent node operation
+  [DECISION]  Conditional gate — branches below
+  [ERROR]     Failure or blocked path
+  [SUCCESS]   Confirmed pass or terminal end state
+  [LOOP]      Retry / loop-back point
+
+
+================================================================================
+  PHASE 1 — SUBMISSION
+================================================================================
+
+  STEP 1 [USER]
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  User Opens Dashboard                                                   │
+  │  Navigates to live Vercel URL                                           │
+  │  Dashboard loads with empty input form                                  │
+  └─────────────────────────────────────────────────────────────────────────┘
+                               │
+                               ▼
+  STEP 2 [USER]
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  Fill in Input Form                                                     │
+  │  → Enters GitHub Repository URL                                         │
+  │  → Enters Team Name                                                     │
+  │  → Enters Leader Name                                                   │
+  │  → Clicks "Run Agent" button                                            │
+  └─────────────────────────────────────────────────────────────────────────┘
+                               │
+                               │  POST /run-agent
+                               ▼
+  STEP 3 [SYSTEM]
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  Express API — Input Validation                                         │
+  │  → Validates repo URL format                                            │
+  │  → Generates unique run_id                                              │
+  │  → Computes branch name: TEAM_LEADER_AI_Fix                             │
+  └─────────────────────────────────────────────────────────────────────────┘
+                               │
+                               ▼
+  STEP 4 [DECISION]
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  ◆ Input Valid?                                                         │
+  │  Is repo URL a valid GitHub URL?                                        │
+  │  Are team name and leader name non-empty?                               │
+  └─────────────────────────────────────────────────────────────────────────┘
+         │                              │
+         │ ✕ INVALID                    │ ✓ VALID
+         ▼                              ▼
+  [ERROR]                        STEP 5 [SYSTEM]
+  Inline validation error        ┌─────────────────────────────────────────┐
+  shown on dashboard             │  Job Enqueued · Dashboard Updates       │
+  User corrects and              │  → BullMQ job created                   │
+  resubmits form                 │  → run_id returned to frontend          │
+                                 │  → Dashboard switches to live run view  │
+                                 │  → WebSocket room opens for run_id      │
+                                 └─────────────────────────────────────────┘
+
+
+================================================================================
+  PHASE 2 — SECURITY SCAN
+================================================================================
+
+                               │
+                               ▼
+  STEP 6 [AGENT]
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  Repo Scanner Agent — Pre-Clone Scan                                    │
+  │  → Queries GitHub API without cloning repo                              │
+  │  → Checks for malicious files and obfuscated source                     │
+  │  → Scans for exposed .env files and hardcoded secrets                   │
+  │  → Flags test scripts that attempt external network calls               │
+  │  → Dashboard shows "Scanning…" loading state                            │
+  └─────────────────────────────────────────────────────────────────────────┘
+                               │
+                               ▼
+  STEP 7 [DECISION]
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  ◆ Repo Safe?                                                           │
+  │  Are any red flags detected?                                            │
+  │  Malicious patterns / SECRET_LEAK / suspicious network calls?           │
+  └─────────────────────────────────────────────────────────────────────────┘
+         │                              │
+         │ 🚨 UNSAFE                    │ ✓ SAFE
+         ▼                              ▼
+  [ERROR]                        STEP 8 [AGENT]
+  Run quarantined                ┌─────────────────────────────────────────┐
+  Security alert card            │  Clone Repository · Language Detection  │
+  shown on dashboard             │  → GitPython clones repo to sandbox     │
+  Execution halted               │  → Auto-detects Python, JS, TS, Java,  │
+  No code executed               │    Go, Rust present in repo             │
+                                 │  → Spins up Docker container per lang   │
+                                 │  → "Network Isolated ✓" badge shown     │
+                                 └─────────────────────────────────────────┘
+
+
+================================================================================
+  PHASE 3 — ANALYSIS
+================================================================================
+
+                               │
+                               ▼
+  STEP 9 [AGENT]
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  AST Analyzer — Static Analysis Pass                                    │
+  │  → tree-sitter parses all source files                                  │
+  │  → Builds full module dependency graph                                  │
+  │  → Computes risk score per file (complexity + depth)                    │
+  │  → Dashboard populates 3D dependency graph                              │
+  │  → Node colors update: green = clean, red = high risk                   │
+  └─────────────────────────────────────────────────────────────────────────┘
+                               │
+                               ▼
+  STEP 10 [AGENT]
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  Test Runner — Execute All Tests in Sandbox                             │
+  │  → Spawns isolated Docker container per detected language               │
+  │  → Runs pytest / Jest / JUnit / go test (auto-selected)                │
+  │  → Captures all stdout + stderr output                                  │
+  │  → CPU/memory telemetry stream begins                                   │
+  │  → Dashboard sparklines begin updating live                             │
+  └─────────────────────────────────────────────────────────────────────────┘
+                               │
+                               ▼
+  STEP 11 [AGENT]
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  Dependency Mapper — Order Failures Topologically                       │
+  │  → Builds root-cause chain from dependency graph                        │
+  │  → Orders fixes: upstream bugs resolved before downstream effects       │
+  │  → Causal attribution runs git blame per detected bug                   │
+  │  → Generates NL explanation cards for each bug's origin                 │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+  👁  USER OBSERVES AT THIS POINT:
+      · Live Thought Stream updating in real time
+      · 3D graph nodes turning red where bugs are detected
+      · Risk heatmap populating with file-level scores
+      · Fixes table beginning to populate with detected bug rows
+  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+
+
+================================================================================
+  PHASE 4 — FIX GENERATION LOOP
+================================================================================
+
+                               │
+                               ▼
+  STEP 12 [AGENT]
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  Fix Generator — ChromaDB KB Lookup First                               │
+  │  → Embeds bug description via OpenAI text-embedding-3-small             │
+  │  → Semantic similarity search against fix_patterns collection           │
+  │  → Filters by bug_type metadata                                         │
+  │  → If match found → "Pattern Match ⚡" badge in fixes table            │
+  └─────────────────────────────────────────────────────────────────────────┘
+                               │
+                               ▼
+  STEP 13 [DECISION]
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  ◆ KB Match Found?                                                      │
+  │  Is similarity score above threshold?                                   │
+  │  Has a similar fix been confirmed in a previous run?                    │
+  └─────────────────────────────────────────────────────────────────────────┘
+         │                              │
+         │ ✓ MATCH                      │ ✕ NO MATCH
+         │                              ▼
+         │                    3 LLMs called simultaneously
+         │                    (cost-aware routing applied)
+         │                    ┌──────────────────────────────────────────┐
+         │                    │  GPT-4o / 4o-mini  →  Proposed Fix #1   │
+         │                    │  Claude Sonnet      →  Proposed Fix #2   │
+         │                    │  Gemini 1.5 Flash   →  Proposed Fix #3   │
+         │                    │                                          │
+         │                    │  Simple bugs  → mini/flash models        │
+         │                    │  Complex bugs → full GPT-4o / Sonnet     │
+         │                    └──────────────────────────────────────────┘
+         │                              │
+         │                              ▼
+         │                    STEP 14 [AGENT]
+         │                    ┌──────────────────────────────────────────┐
+         │                    │  Consensus Vote · Meta-Arbitration       │
+         │                    │  → 2-of-3 models must agree on fix       │
+         │                    │  → All three disagree? Meta-arbitrator   │
+         │                    │    selects best with reasoning           │
+         │                    │  → Counterfactual simulation runs in     │
+         │                    │    sandbox before proceeding             │
+         │                    └──────────────────────────────────────────┘
+         │                              │
+         └──────────────────────────────┘
+                               │
+                               ▼
+  STEP 15 [AGENT]
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  Critic Agent — Validate Before Commit                                  │
+  │  → Re-parses fix using AST to check structural validity                 │
+  │  → Scores regression risk                                               │
+  │  → Computes confidence score (0 – 100%)                                 │
+  │  → Confidence score column updates in dashboard fixes table             │
+  └─────────────────────────────────────────────────────────────────────────┘
+                               │
+                               ▼
+  STEP 16 [DECISION]
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  ◆ Confidence ≥ Threshold? (default 70%)                                │
+  │  Is the fix structurally valid?                                         │
+  │  Is regression risk within acceptable range?                            │
+  └─────────────────────────────────────────────────────────────────────────┘
+         │                              │
+         │ ✕ LOW CONFIDENCE             │ ✓ CONFIDENT
+         ▼                              ▼
+  [LOOP]                         STEP 17 [AGENT]
+  Fix rejected                   ┌─────────────────────────────────────────┐
+  Returns to Fix Generator       │  Commit Optimizer — Batch & Push        │
+  with alternate strategy        │  → Groups related fixes into minimum    │
+  Logged in thought stream       │    number of commits possible           │
+                                 │  → Enforces [AI-AGENT] commit prefix    │
+                                 │  → Pushes to TEAM_LEADER_AI_Fix branch  │
+                                 │  → Fixes table rows turn ✓ green        │
+                                 │  → Live score counter ticks upward      │
+                                 └─────────────────────────────────────────┘
+
+  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+  👁  USER OBSERVES AT THIS POINT:
+      · Fixes table rows updating one by one with ✓ status
+      · Live score counter incrementing dynamically
+      · Commit count incrementing in Run Summary Card
+      · Thought stream showing commit SHAs being pushed
+      · Diff viewer available on each row click
+  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+
+
+================================================================================
+  PHASE 5 — CI/CD MONITORING LOOP
+================================================================================
+
+                               │
+                               ▼
+  STEP 18 [SYSTEM]
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  GitHub Actions Triggered on Branch Push                                │
+  │  → CI/CD pipeline runs automatically on new branch                     │
+  │  → Agent polls GitHub API every 15 seconds for status                  │
+  │  → CI/CD timeline adds a new iteration card on dashboard                │
+  │  → Iteration counter shows e.g. "1 / 5"                                │
+  └─────────────────────────────────────────────────────────────────────────┘
+                               │
+                               ▼
+  STEP 19 [DECISION]
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  ◆ CI Pipeline Result?                                                  │
+  │  Did all tests pass?                                                    │
+  │  Were any previously passing tests broken (regression)?                 │
+  │  How many retry iterations remain?                                      │
+  └─────────────────────────────────────────────────────────────────────────┘
+         │                    │                         │
+         │ REGRESSION         │ FAILED · RETRIES LEFT   │ ALL TESTS PASS
+         ▼                    ▼                         ▼
+  [ERROR]               [LOOP]                    [SUCCESS]
+  ┌───────────────┐  ┌────────────────────┐  ┌──────────────────────────┐
+  │ Rollback      │  │ Adaptive Retry     │  │ CI Passed ✓              │
+  │ Agent         │  │ → Exponential      │  │ → PASSED badge shown     │
+  │ → git revert  │  │   backoff applied  │  │ → CI timeline card turns │
+  │   bad commit  │  │ → Escalate to      │  │   green                  │
+  │   only        │  │   stronger model   │  │ → Proceed to Phase 6     │
+  │ → Regression  │  │   if needed        │  └──────────────────────────┘
+  │   logged on   │  │ → Loop back to     │
+  │   timeline    │  │   Fix Generator    │
+  │ → Retry with  │  │   (Step 12) with   │
+  │   alt strategy│  │   updated context  │
+  └───────┬───────┘  └─────────┬──────────┘
+          │                    │
+          └────────┬───────────┘
+                   │
+                   ▼
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  [LOOP] RETRY LOOP                                                      │
+  │  Both regression and failed-with-retries paths loop back to            │
+  │  Fix Generator (Step 12) with updated failure context.                 │
+  │  Maximum 5 iterations enforced.                                        │
+  │  After 5 consecutive failures → run marked FAILED                      │
+  │  → results.json written with FAILED status                             │
+  │  → Dashboard shows FAILED badge · User notified                        │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+  👁  USER OBSERVES AT THIS POINT:
+      · CI/CD timeline filling with iteration cards
+      · Each card shows pass/fail badge + timestamp
+      · Iteration counter updating: "2/5", "3/5" etc.
+      · Rollback events appear as distinct timeline entries
+      · Thought stream shows regression detection reasoning
+  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+
+
+================================================================================
+  PHASE 6 — HARDENING & COMPLETION
+================================================================================
+
+                               │
+                               ▼
+  STEP 20 [AGENT]
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  Adversarial Tester — Generate Edge-Case Tests                          │
+  │  → Writes new unit tests targeting fixed code paths specifically        │
+  │  → Commits tests with [AI-AGENT] prefix                                 │
+  │  → Triggers one final CI run to confirm hardening                       │
+  │  → Agent is not just patching — actively hardening the codebase         │
+  └─────────────────────────────────────────────────────────────────────────┘
+                               │
+                               ▼
+  STEP 21 [AGENT]
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  Self-Benchmarker — Score & Persist                                     │
+  │  → Scores run against all hackathon rubric criteria                     │
+  │  → Computes predicted score vs actual score                             │
+  │  → Calibration gap displayed as metacognition metric on dashboard       │
+  │  → Evolves strategy weights via genetic algorithm step                  │
+  │  → Embeds all successful fixes into ChromaDB fix_patterns               │
+  │  → Rolled-back fixes are excluded from KB                               │
+  └─────────────────────────────────────────────────────────────────────────┘
+                               │
+                               ▼
+  STEP 22 [SYSTEM]
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  Write results.json · Generate PDF Report                               │
+  │  → results.json written to /outputs/{run_id}/results.json               │
+  │  → Puppeteer renders full formatted PDF report                          │
+  │  → report.pdf written to /outputs/{run_id}/report.pdf                   │
+  │  → PostgreSQL run record updated to final completed state               │
+  │  → Redis run cache keys set to expire (TTL 2 hours)                     │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+
+================================================================================
+  PHASE 7 — RESULTS & POST-RUN
+================================================================================
+
+                               │
+                               ▼
+  STEP 23 [SYSTEM]
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  run_complete Event — Dashboard Final Update                            │
+  │  → Socket.io emits run_complete event                                   │
+  │  → Dashboard transitions from live run view to results view             │
+  │  → All panels fully populated with final data                           │
+  │  → Final PASSED / FAILED badge rendered in Run Summary Card             │
+  │  → Score locked · Total time shown · PDF download button appears        │
+  └─────────────────────────────────────────────────────────────────────────┘
+                               │
+                               ▼
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  [SUCCESS] — USER POST-RUN OPTIONS                                      │
+  │                                                                         │
+  │  Review Results                                                         │
+  │  → Browse fixes table row by row                                        │
+  │  → Click any row to expand inline diff viewer (Monaco Editor)           │
+  │  → View CI/CD timeline with all iterations                              │
+  │  → Check confidence score and model used per fix                        │
+  │  → Read causal attribution cards per bug                                │
+  │                                                                         │
+  │  Explore & Interrogate                                                  │
+  │  → Rotate and zoom 3D codebase dependency graph                         │
+  │  → Click nodes to view per-file fix history                             │
+  │  → Type NL questions to agent (e.g. "Why did you fix utils.py first?")  │
+  │  → Enter Replay Mode — step through full execution trace                │
+  │  → View strategy evolution chart (GA weight drift over runs)            │
+  │  → View heatmap calendar — bug density per CI iteration                 │
+  │                                                                         │
+  │  Export & Share                                                         │
+  │  → Download PDF run report (full formatted document)                    │
+  │  → Copy branch name for manual PR review on GitHub                      │
+  │  → Submit another repo URL to start a new run                          │
+  │  → Use multi-repo mode to compare two repos side-by-side                │
+  └─────────────────────────────────────────────────────────────────────────┘
+                               │
+                               ▼
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  ✦  RUN COMPLETE                                                        │
+  │                                                                         │
+  │  All fixes committed · CI passed · results.json written                 │
+  │  PDF report generated · Execution trace persisted for replay            │
+  │  Successful fixes embedded into ChromaDB for future runs                │
+  │  Strategy weights evolved · Self-benchmark score recorded               │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+
+================================================================================
+  COMPLETE FLOW SUMMARY — STEP REFERENCE
+================================================================================
+
+  Phase 1 — Submission
+  ─────────────────────────────────────────────────────────────────────────
+  Step  1  [USER]      Open dashboard
+  Step  2  [USER]      Fill input form and click Run Agent
+  Step  3  [SYSTEM]    Express API validates input and generates run_id
+  Step  4  [DECISION]  Input valid? → error shown if not
+  Step  5  [SYSTEM]    Job enqueued · dashboard switches to live run view
+
+  Phase 2 — Security Scan
+  ─────────────────────────────────────────────────────────────────────────
+  Step  6  [AGENT]     Pre-clone malicious repo scan via GitHub API
+  Step  7  [DECISION]  Repo safe? → quarantine and halt if not
+  Step  8  [AGENT]     Clone repo · language detection · Docker containers up
+
+  Phase 3 — Analysis
+  ─────────────────────────────────────────────────────────────────────────
+  Step  9  [AGENT]     AST static analysis · dependency graph · risk heatmap
+  Step 10  [AGENT]     Test runner in isolated Docker sandbox · telemetry stream
+  Step 11  [AGENT]     Topological failure ordering · causal attribution
+
+  Phase 4 — Fix Generation Loop
+  ─────────────────────────────────────────────────────────────────────────
+  Step 12  [AGENT]     ChromaDB KB lookup before any LLM call
+  Step 13  [DECISION]  KB match found? → apply instantly or proceed to LLMs
+  Step 14  [AGENT]     3 LLMs in parallel → consensus vote → simulation
+  Step 15  [AGENT]     Critic Agent validates fix · computes confidence score
+  Step 16  [DECISION]  Confidence ≥ threshold? → reject and retry if not
+  Step 17  [AGENT]     Commit Optimizer batches fixes · pushes to branch
+
+  Phase 5 — CI/CD Monitoring Loop
+  ─────────────────────────────────────────────────────────────────────────
+  Step 18  [SYSTEM]    GitHub Actions triggered · agent polls every 15s
+  Step 19  [DECISION]  CI result? → regression/retry/pass branches
+            [LOOP]     Regression → rollback + retry · Failed → adaptive retry
+                       Both loop back to Step 12 · Max 5 iterations
+
+  Phase 6 — Hardening & Completion
+  ─────────────────────────────────────────────────────────────────────────
+  Step 20  [AGENT]     Adversarial test generation · final CI run
+  Step 21  [AGENT]     Self-benchmarking · strategy weight evolution · KB update
+  Step 22  [SYSTEM]    Write results.json · Generate PDF report
+
+  Phase 7 — Results & Post-Run
+  ─────────────────────────────────────────────────────────────────────────
+  Step 23  [SYSTEM]    run_complete event · dashboard final update
+            [SUCCESS]  User reviews results · interrogates agent · downloads PDF
+
+
+================================================================================
+  DECISION GATES — QUICK REFERENCE
+================================================================================
+
+  ┌────────┬──────────────────────────────┬────────────────┬────────────────┐
+  │ Step   │ Gate                         │ YES path       │ NO path        │
+  ├────────┼──────────────────────────────┼────────────────┼────────────────┤
+  │   4    │ Input valid?                 │ Enqueue job    │ Show error     │
+  │   7    │ Repo safe?                   │ Clone repo     │ Quarantine run │
+  │  13    │ KB match found?              │ Apply fix      │ Call 3 LLMs    │
+  │  16    │ Confidence ≥ threshold?      │ Commit fix     │ Retry fix gen  │
+  │  19    │ CI passed?                   │ Phase 6        │ Rollback/retry │
+  └────────┴──────────────────────────────┴────────────────┴────────────────┘
+
+
+================================================================================
+  LOOP-BACK POINTS — QUICK REFERENCE
+================================================================================
+
+  LOOP A — Critic rejects fix (Step 16 → Step 12)
+    Trigger  : Confidence score below threshold
+    Action   : Return to Fix Generator with alternative strategy flag
+    Limit    : No standalone limit — governed by CI iteration count
+
+  LOOP B — CI fails with retries remaining (Step 19 → Step 12)
+    Trigger  : GitHub Actions pipeline fails · retries available
+    Action   : Adaptive backoff → escalate model if needed → re-fix
+    Limit    : Maximum 5 CI iterations total
+
+  LOOP C — Regression detected (Step 19 → Rollback → Step 12)
+    Trigger  : Previously passing test now fails after a commit
+    Action   : git revert specific commit → log regression → re-attempt
+    Limit    : Counts against the 5-iteration maximum
+
+
+================================================================================
+  END OF USER FLOW DOCUMENT
+  RIFT 2026 — Autonomous CI/CD Healing Agent
+================================================================================

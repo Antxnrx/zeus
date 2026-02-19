@@ -1,0 +1,535 @@
+================================================================================
+  RIFT 2026 — AI/ML TRACK
+  AUTONOMOUS CI/CD HEALING AGENT — SYSTEM ARCHITECTURE
+================================================================================
+
+  Full-stack multi-agent architecture | Component interaction map | Data flows
+  Rechecked and verified for consistency and completeness.
+
+================================================================================
+  LAYER OVERVIEW (Top to Bottom)
+================================================================================
+
+  [1] CLIENT LAYER         →  React Dashboard (Vercel)
+  [2] API GATEWAY          →  Node.js + Express + Socket.io (Railway)
+  [3] JOB QUEUE            →  BullMQ + Redis / Upstash (Railway)
+  [4] ORCHESTRATION        →  FastAPI + LangGraph (Railway)
+  [5] AGENT NODES          →  Sub-agents (inside FastAPI service)
+  [6] EXECUTION SANDBOX    →  Docker containers (language-specific)
+  [7] EXTERNAL APIs        →  OpenAI, Anthropic, Gemini, GitHub
+  [8] PERSISTENCE LAYER    →  PostgreSQL, ChromaDB, Redis, results.json
+
+
+================================================================================
+  LAYER 1 — CLIENT LAYER
+  Deployed: Vercel (Free Tier)
+  Framework: React + Vite
+================================================================================
+
+  State Management : Zustand
+  Data Fetching    : React Query (TanStack)
+  Real-time        : Socket.io Client
+  Animations       : Framer Motion
+  Code Diff Viewer : Monaco Editor
+  Charts           : Recharts
+  3D Graph         : Three.js + react-force-graph-3d
+  PDF Export       : @react-pdf/renderer
+
+  UI PANELS:
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  Input Panel          — Repo URL, Team Name, Leader Name, Run button    │
+  │  Run Summary Card     — Branch name, fixes count, CI status, time taken │
+  │  Score Simulator      — Live score counter updating in real time        │
+  │  Fixes Table          — File | Bug Type | Line | Commit | Status        │
+  │  Diff Viewer          — Inline GitHub-style diff per fix (Monaco)       │
+  │  CI/CD Timeline       — Pass/fail badge per iteration with timestamps   │
+  │  3D Dependency Graph  — Node = file, Edge = import, Color = bug density │
+  │  Live Thought Stream  — Real-time agent reasoning via WebSocket         │
+  │  Telemetry Sparklines — CPU / Memory of running Docker containers       │
+  │  Heatmap Calendar     — Bug density per CI iteration (Recharts)         │
+  │  NL Interrogation     — Chat input to question agent post-run           │
+  │  Replay Mode          — Step through full execution trace               │
+  │  PDF Report Export    — Downloadable run report                         │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+
+================================================================================
+  LAYER 2 — API GATEWAY
+  Deployed: Railway (Free Tier)
+  Runtime: Node.js + Express
+================================================================================
+
+  REST ENDPOINTS:
+    POST   /run-agent           — Accept repo URL + team info, enqueue job
+    GET    /results/:runId      — Serve results.json for a completed run
+    GET    /replay/:runId       — Serve full execution trace for replay mode
+    POST   /agent/query         — Natural language interrogation relay
+
+  SOCKET.IO SERVER:
+    Namespace : /run/:runId     — Isolated room per run
+    Events emitted to client:
+      thought_event             — Agent reasoning step
+      fix_applied               — A fix was committed
+      ci_update                 — CI/CD run status changed
+      telemetry_tick            — CPU/memory snapshot
+      run_complete              — Final results ready
+
+  SESSION STORE:
+    Provider : Vercel KV (or Upstash Redis)
+    Stores   : Active run state, WebSocket room map, short-lived run cache
+
+
+================================================================================
+  LAYER 3 — JOB QUEUE
+  Provider: Upstash Redis (Free Tier)
+  Library:  BullMQ (Node.js)
+================================================================================
+
+  QUEUES:
+    agent-runs      — Primary queue for agent execution jobs
+    pdf-export      — Async PDF report generation
+    report-gen      — results.json write-out
+
+  WORKER CONFIG:
+    Concurrency     : 3 (configurable — supports multi-repo parallel mode)
+    Retry strategy  : Exponential backoff with jitter
+    Dead-letter     : Failed jobs logged to PostgreSQL
+    Priority        : Configurable per team submission
+
+  FLOW:
+    Express API (producer) → Redis → BullMQ Worker (consumer) → FastAPI trigger
+
+
+================================================================================
+  LAYER 4 — ORCHESTRATION
+  Deployed: Railway (Free Tier)
+  Runtime:  Python — FastAPI + LangGraph
+================================================================================
+
+  FASTAPI SERVICE ENDPOINTS:
+    POST   /agent/start         — Initialise AgentState, begin LangGraph run
+    GET    /agent/status        — Current node + iteration count
+    GET    /agent/stream        — SSE stream of thought events → Socket.io
+    POST   /agent/query         — Answer NL question using execution trace
+
+  AGENTSTATE OBJECT (shared across all LangGraph nodes):
+    repo_url          : str
+    team_name         : str
+    leader_name       : str
+    branch_name       : str
+    failures[]        : list of detected bugs with metadata
+    fixes[]           : list of applied fixes with confidence scores
+    iteration_count   : int (max 5)
+    cost_tracker      : dict (per-model token usage + cost)
+    confidence_scores : dict (per fix)
+    execution_trace[] : ordered list of all agent actions (for replay)
+    results_json      : final output object
+
+  LANGGRAPH NODE GRAPH:
+  ┌──────────────────────────────────────────────────────────────────────┐
+  │                                                                      │
+  │   START                                                              │
+  │     │                                                                │
+  │     ▼                                                                │
+  │   [repo_scanner]  ──malicious?──► QUARANTINE + ALERT                 │
+  │     │                                                                │
+  │     ▼                                                                │
+  │   [ast_analyzer]  — builds dependency graph, risk heatmap            │
+  │     │                                                                │
+  │     ▼                                                                │
+  │   [test_runner]   — spawns Docker sandbox, captures failures         │
+  │     │                                                                │
+  │     ▼                                                                │
+  │   [dependency_mapper] — topological ordering of fix sequence         │
+  │     │                                                                │
+  │     ▼                                                                │
+  │   [fix_generator] — KB lookup → if miss → 3 LLMs parallel → vote     │
+  │     │                                                                │
+  │     ▼                                                                │
+  │   [critic_agent]  — review fix, compute confidence score             │
+  │     │                                                                │
+  │     ├──low confidence──► [fix_generator] retry with alt strategy     │
+  │     │                                                                │
+  │     ▼                                                                │
+  │   [commit_optimizer] — batch related fixes → min commit count        │
+  │     │                                                                │
+  │     ▼                                                                │
+  │   [ci_monitor]    — poll GitHub Actions, detect regressions          │
+  │     │                                                                │
+  │     ├──regression──► [rollback_agent] → git revert → retry           │
+  │     │                                                                │
+  │     ├──failed + retries remain──► [fix_generator] (next iteration)   │
+  │     │                                                                │
+  │     ▼                                                                │
+  │   [adversarial_tester] — generate new edge-case tests                │
+  │     │                                                                │
+  │     ▼                                                                │
+  │   [self_benchmarker]   — score run against rubric criteria           │
+  │     │                                                                │
+  │     ▼                                                                │
+  │   END — write results.json, store to PostgreSQL, embed to ChromaDB   │
+  │                                                                      │
+  └──────────────────────────────────────────────────────────────────────┘
+
+
+================================================================================
+  LAYER 5 — AGENT NODES (Sub-agent responsibilities)
+================================================================================
+
+  ┌─────────────────────────┬────────────────────────────────────────────────┐
+  │ Agent                   │ Responsibilities + Tools Used                  │
+  ├─────────────────────────┼────────────────────────────────────────────────┤
+  │ Repo Scanner Agent      │ Pre-clone malicious scan via GitHub API        │
+  │                         │ Secret leak detection (detect-secrets, Bandit) │
+  │                         │ Language auto-detection                        │
+  │                         │ Dependency cluster partitioning                │
+  │                         │ Tools: PyGithub, detect-secrets, Bandit        │
+  ├─────────────────────────┼────────────────────────────────────────────────┤
+  │ AST Analyzer Agent      │ Multi-language AST parsing (tree-sitter)       │
+  │                         │ Python deep analysis (ast stdlib)              │
+  │                         │ Predictive risk scoring → heatmap              │
+  │                         │ Root cause dependency mapping                  │
+  │                         │ Causal attribution via git blame               │
+  │                         │ Tools: tree-sitter, ast, GitPython             │
+  ├─────────────────────────┼────────────────────────────────────────────────┤
+  │ Multi-Model Fix Agent   │ Bug complexity classification                  │
+  │                         │ Cost-aware LLM routing                         │
+  │                         │   Simple bugs  → GPT-4o-mini / Gemini Flash    │
+  │                         │   Complex bugs → GPT-4o / Claude Sonnet        │
+  │                         │ 3-model parallel call + consensus vote         │
+  │                         │ Meta-arbitrator on 3-way disagreement          │
+  │                         │ Counterfactual simulation pre-commit           │
+  │                         │ Tools: OpenAI, Anthropic, Gemini APIs          │
+  ├─────────────────────────┼────────────────────────────────────────────────┤
+  │ Critic Agent            │ ChromaDB KB lookup (before LLM fix attempt)    │
+  │                         │ AST re-validation of proposed fix              │
+  │                         │ Regression risk scoring                        │
+  │                         │ Confidence score computation (0–100%)          │
+  │                         │ Fix rejection + retry trigger                  │
+  ├─────────────────────────┼────────────────────────────────────────────────┤
+  │ Commit Optimizer Agent  │ Batch related fixes into single commits        │
+  │                         │ Enforce [AI-AGENT] prefix on all commits       │
+  │                         │ Enforce TEAM_LEADER_AI_Fix branch naming       │
+  │                         │ Minimise total commit count (scoring impact)   │
+  ├─────────────────────────┼────────────────────────────────────────────────┤
+  │ CI Monitor Agent        │ Poll GitHub Actions API every 15 seconds       │
+  │                         │ Detect regressions by diffing CI failure sets  │
+  │                         │ Trigger git revert on specific bad commit      │
+  │                         │ Adaptive retry: backoff + strategy escalation  │
+  │                         │ Speculative branch execution on uncertainty    │
+  │                         │ Tools: PyGithub, GitPython                     │
+  ├─────────────────────────┼────────────────────────────────────────────────┤
+  │ Adversarial Tester      │ Write new edge-case unit tests post-fix        │
+  │                         │ Target fixed code paths specifically           │
+  │                         │ Commit tests + trigger final CI run            │
+  ├─────────────────────────┼────────────────────────────────────────────────┤
+  │ Self-Benchmarker Agent  │ Score run against hackathon rubric             │
+  │                         │ Compute predicted score vs actual score        │
+  │                         │ Update strategy weights in PostgreSQL          │
+  │                         │ Trigger PDF report generation                  │
+  └─────────────────────────┴────────────────────────────────────────────────┘
+
+
+================================================================================
+  LAYER 6 — EXECUTION SANDBOX
+  Runtime: Docker SDK for Python
+================================================================================
+
+  SANDBOX CONTAINERS (spun up dynamically based on repo language):
+
+  ┌──────────────────┬─────────────────────────────────────────────────────┐
+  │ Container        │ Tools Inside                                        │
+  ├──────────────────┼─────────────────────────────────────────────────────┤
+  │ Python 3.11      │ pytest, Pylint, Flake8, Black, ast, Bandit,         │
+  │                  │ detect-secrets                                      │
+  ├──────────────────┼─────────────────────────────────────────────────────┤
+  │ Node 20          │ Jest, ESLint, Prettier, tsc, ts-jest                │
+  ├──────────────────┼─────────────────────────────────────────────────────┤
+  │ Java 17          │ JUnit 5, Maven/Gradle (on-demand only)              │
+  ├──────────────────┼─────────────────────────────────────────────────────┤
+  │ Go 1.22          │ go test, golint (on-demand only)                    │
+  ├──────────────────┼─────────────────────────────────────────────────────┤
+  │ Rust             │ cargo test, clippy (on-demand only)                 │
+  ├──────────────────┼─────────────────────────────────────────────────────┤
+  │ PDF Renderer     │ Puppeteer (headless Chrome) — report export only    │
+  └──────────────────┴─────────────────────────────────────────────────────┘
+
+  SECURITY:
+    Network     : --network none (zero outbound internet access per container)
+    Lifecycle   : Auto-destroyed after each run
+    Badge       : "Network Isolated ✓" displayed on dashboard
+
+  TELEMETRY:
+    psutil polls CPU + memory stats from running containers
+    Stats streamed → FastAPI → Socket.io → Dashboard sparkline charts
+
+
+================================================================================
+  LAYER 7 — EXTERNAL APIs
+================================================================================
+
+  ┌──────────────────────┬───────────────┬───────────────────────────────────┐
+  │ Service              │ API Key       │ Usage                             │
+  ├──────────────────────┼───────────────┼───────────────────────────────────┤
+  │ OpenAI               │ Required      │ GPT-4o — complex fix generation   │
+  │                      │ $5 free credit│ GPT-4o-mini — simple/lint fixes   │
+  │                      │               │ text-embedding-3-small — ChromaDB │
+  ├──────────────────────┼───────────────┼───────────────────────────────────┤
+  │ Anthropic            │ Required      │ Claude Sonnet — consensus voter 2 │
+  │                      │ $5 free credit│ Critic agent fallback model       │
+  ├──────────────────────┼───────────────┼───────────────────────────────────┤
+  │ Google Gemini        │ Required      │ Gemini 1.5 Flash — consensus #3   │
+  │                      │ Free tier     │ 1M tokens/day at no cost          │
+  │                      │ (AI Studio)   │                                   │
+  ├──────────────────────┼───────────────┼───────────────────────────────────┤
+  │ GitHub REST API      │ Required      │ Clone repos, create branches,     │
+  │                      │ Free (PAT)    │ push commits, monitor Actions,    │
+  │                      │               │ git blame, pre-clone scan         │
+  └──────────────────────┴───────────────┴───────────────────────────────────┘
+
+  MINIMUM KEYS NEEDED TO RUN THE FULL SYSTEM:
+    1. OPENAI_API_KEY         — GPT-4o, GPT-4o-mini, embeddings
+    2. ANTHROPIC_API_KEY      — Claude Sonnet
+    3. GOOGLE_API_KEY         — Gemini Flash (free tier)
+    4. GITHUB_PAT             — All repo + CI operations
+
+
+================================================================================
+  LAYER 8 — PERSISTENCE LAYER
+================================================================================
+
+  POSTGRESQL  (Railway Free Tier — SQLAlchemy ORM + Alembic migrations)
+  ┌──────────────────┬────────────────────────────────────────────────────┐
+  │ Table            │ Stores                                             │
+  ├──────────────────┼────────────────────────────────────────────────────┤
+  │ runs             │ runId, repo_url, team, branch, start/end time,     │
+  │                  │ final score, self-benchmark score                  │
+  ├──────────────────┼────────────────────────────────────────────────────┤
+  │ fixes            │ runId, file, bug_type, line_number, commit_sha,    │
+  │                  │ confidence_score, model_used, status               │
+  ├──────────────────┼────────────────────────────────────────────────────┤
+  │ ci_events        │ runId, iteration, timestamp, pass/fail,            │
+  │                  │ regression_detected, rollback_triggered            │
+  ├──────────────────┼────────────────────────────────────────────────────┤
+  │ traces           │ runId, step_index, agent_name, action, payload,    │
+  │                  │ timestamp — full replay data                       │
+  ├──────────────────┼────────────────────────────────────────────────────┤
+  │ strategy_weights │ bug_type, strategy_name, success_rate,             │
+  │                  │ weight (evolved by genetic algorithm)              │
+  ├──────────────────┼────────────────────────────────────────────────────┤
+  │ benchmark_scores │ runId, rubric_criterion, predicted, actual,        │
+  │                  │ calibration_gap                                    │
+  └──────────────────┴────────────────────────────────────────────────────┘
+
+  CHROMADB  (Self-hosted, Free)
+    Collection : fix_patterns
+    Documents  : successful fix code + metadata (bug_type, language, file)
+    Vectors    : OpenAI text-embedding-3-small embeddings
+    Query      : Semantic similarity search before every LLM fix call
+    Scope      : Cross-repo — shared across all runs and all teams
+    Badge      : "Pattern Match" shown in fixes table on KB hit
+
+  REDIS / UPSTASH  (Free Tier)
+    Usage      : BullMQ job backing store
+                 Active run state snapshots (TTL-based)
+                 WebSocket event buffer per runId
+
+  RESULTS.JSON  (Local filesystem per run)
+    Written at end of every run
+    Contains  : fixes[], ci_log[], score_breakdown, branch_name, timing
+    Served via : GET /results/:runId
+
+
+================================================================================
+  INTER-SERVICE COMMUNICATION PROTOCOLS
+================================================================================
+
+  ┌─────────────────────────┬─────────────────────┬────────────────────────┐
+  │ From                    │ To                  │ Protocol               │
+  ├─────────────────────────┼─────────────────────┼────────────────────────┤
+  │ React Dashboard         │ Express API         │ HTTP REST (JSON)        │
+  │ Express API             │ React Dashboard     │ WebSocket (Socket.io)   │
+  │ Express API             │ BullMQ              │ Redis enqueue           │
+  │ BullMQ Worker           │ FastAPI             │ HTTP REST               │
+  │ FastAPI (SSE stream)    │ Socket.io Server    │ Internal SSE bridge     │
+  │ Socket.io Server        │ React Dashboard     │ WebSocket emit          │
+  │ LangGraph Nodes         │ OpenAI / Anthropic  │ HTTPS REST (parallel)  │
+  │ LangGraph Nodes         │ Gemini API          │ HTTPS REST (parallel)  │
+  │ Agent                   │ Docker Sandboxes    │ Docker SDK (subprocess) │
+  │ Sandbox Containers      │ Agent               │ stdout / stderr capture │
+  │ Agent                   │ GitHub API          │ HTTPS REST (PAT auth)   │
+  │ Agent                   │ ChromaDB            │ HTTP (local service)    │
+  │ Agent                   │ PostgreSQL          │ SQLAlchemy (TCP)        │
+  │ psutil                  │ Socket.io Stream    │ Polling → WS emit       │
+  └─────────────────────────┴─────────────────────┴────────────────────────┘
+
+
+================================================================================
+  END-TO-END REQUEST FLOW (HAPPY PATH)
+================================================================================
+
+  01. User enters repo URL + team info on React Dashboard → clicks Run Agent
+  02. React → POST /run-agent (Express API)
+  03. Express validates input, generates runId, enqueues BullMQ job, returns runId
+  04. React opens Socket.io room (/run/:runId) and begins listening for events
+  05. BullMQ Worker picks up job → POST /agent/start (FastAPI)
+  06. FastAPI initialises AgentState object → starts LangGraph graph execution
+  07. Node: repo_scanner
+        → GitHub API pre-scan for malicious flags + secrets
+        → If clean: clone repo via GitPython
+        → Detect all languages present
+  08. Node: ast_analyzer
+        → Run tree-sitter + ast on all files
+        → Build dependency graph, compute risk heatmap
+        → Identify all bugs with type, file, line number
+  09. Node: test_runner
+        → Spawn appropriate Docker sandbox (network isolated)
+        → Execute all test files, capture failures
+        → Stream telemetry (CPU/mem) via psutil → Socket.io
+  10. Node: dependency_mapper
+        → Topological sort of failures by dependency order
+  11. Node: fix_generator (per bug, in order)
+        → ChromaDB KB similarity search
+        → On KB miss: call GPT-4o + Claude Sonnet + Gemini Flash in parallel
+        → Consensus vote → meta-arbitrator if 3-way split
+        → Counterfactual simulation in sandbox
+  12. Node: critic_agent
+        → AST re-validate fix
+        → Compute confidence score
+        → Reject if low confidence → back to fix_generator
+  13. Node: commit_optimizer
+        → Batch related fixes into minimum commits
+        → Write [AI-AGENT] prefix on all commit messages
+        → Push to TEAM_LEADER_AI_Fix branch via GitPython
+  14. Node: ci_monitor
+        → Poll GitHub Actions API every 15s
+        → On failure: diff vs previous run to detect regressions
+        → Regression → rollback_agent → git revert → retry loop
+        → Max 5 iterations with adaptive backoff
+  15. Node: adversarial_tester
+        → Generate edge-case tests for fixed code paths
+        → Commit + trigger final CI run
+  16. Node: self_benchmarker
+        → Score run against rubric
+        → Store scores + strategy weights in PostgreSQL
+  17. Write results.json → trigger PDF generation (Puppeteer)
+  18. Emit run_complete event → Socket.io → React Dashboard updates
+  19. Successful fix patterns embedded → stored in ChromaDB for future runs
+
+
+================================================================================
+  RETRY / FAILURE PATHS
+================================================================================
+
+  SCENARIO 1 — Fix fails CI:
+    ci_monitor detects failure → remaining retries check →
+    if retries > 0: back to fix_generator with updated context →
+    if retries = 0: mark as FAILED in results.json
+
+  SCENARIO 2 — Fix causes regression:
+    ci_monitor compares new failures vs previous failures →
+    newly introduced failure detected → rollback_agent issues git revert →
+    fix_generator retries with alternative strategy
+
+  SCENARIO 3 — Critic rejects fix:
+    critic_agent confidence < threshold →
+    fix_generator retried with different model or strategy
+
+  SCENARIO 4 — LLM consensus split (all 3 disagree):
+    meta-arbitrator agent called with all 3 proposals as context →
+    selects best fix with reasoning → proceeds to critic
+
+  SCENARIO 5 — Uncertain between 2 strategies:
+    speculative branch execution → 2 branches pushed simultaneously →
+    CI runs on both in parallel →
+    passing branch merged → failing branch deleted + logged
+
+  SCENARIO 6 — Malicious repo detected:
+    repo_scanner raises QUARANTINE flag →
+    LangGraph routes to QUARANTINE terminal node →
+    run halted, alert card shown on dashboard, no code executed
+
+
+================================================================================
+  TECH STACK QUICK REFERENCE
+================================================================================
+
+  FRONTEND
+    React + Vite         UI framework
+    TailwindCSS          Styling
+    Zustand              State management
+    React Query          API + data sync
+    Socket.io Client     Real-time events
+    Three.js             3D dependency graph
+    react-force-graph-3d Graph renderer
+    Recharts             Charts + heatmaps
+    Monaco Editor        Diff viewer
+    Framer Motion        Animations
+    @react-pdf/renderer  PDF export
+    Deployment: Vercel   (Free tier)
+
+  BACKEND
+    Node.js + Express    REST API gateway
+    Socket.io Server     WebSocket broadcaster
+    BullMQ               Job queue
+    FastAPI (Python)     Agent microservice
+    LangGraph            Agent orchestration
+    SQLAlchemy + Alembic ORM + DB migrations
+    GitPython            Git operations
+    PyGithub             GitHub API wrapper
+    Docker SDK (Python)  Sandbox management
+    psutil               Container telemetry
+    Puppeteer            PDF rendering
+    Deployment: Railway  (Free tier)
+
+  ANALYSIS
+    tree-sitter          Multi-language AST parser
+    ast (stdlib)         Python AST
+    Pylint + Flake8      Python linting
+    Black                Python formatter
+    ESLint + Prettier    JS/TS linting
+    Bandit               Python security scan
+    detect-secrets       Secret / credential detection
+
+  DATA
+    PostgreSQL           Primary database (Railway)
+    ChromaDB             Vector database (self-hosted)
+    Redis / Upstash      Queue backing + cache (Free tier)
+
+  EXTERNAL APIs
+    OpenAI API           GPT-4o, GPT-4o-mini, embeddings
+    Anthropic API        Claude Sonnet
+    Google AI Studio     Gemini 1.5 Flash
+    GitHub REST API      Repo ops + CI monitoring
+
+
+================================================================================
+  ENVIRONMENT VARIABLES NEEDED
+================================================================================
+
+  # LLM
+  OPENAI_API_KEY=
+  ANTHROPIC_API_KEY=
+  GOOGLE_API_KEY=
+
+  # GitHub
+  GITHUB_PAT=
+
+  # Database
+  DATABASE_URL=                  # PostgreSQL connection string (Railway)
+  REDIS_URL=                     # Upstash Redis URL
+
+  # Service URLs (internal)
+  FASTAPI_URL=                   # e.g. https://your-fastapi.railway.app
+  FRONTEND_URL=                  # e.g. https://your-app.vercel.app
+
+  # Agent Config
+  AGENT_MAX_RETRIES=5
+  AGENT_WORKER_CONCURRENCY=3
+  AGENT_CONFIDENCE_THRESHOLD=70  # Minimum confidence % to allow commit
+
+
+================================================================================
+  END OF ARCHITECTURE DOCUMENT
+  RIFT 2026 — Autonomous CI/CD Healing Agent
+================================================================================
