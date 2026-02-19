@@ -1,641 +1,291 @@
 ================================================================================
-  RIFT 2026 — AUTONOMOUS CI/CD HEALING AGENT
-  COMPLETE DATABASE ARCHITECTURE
+RIFT 2026 - AUTONOMOUS CI/CD HEALING AGENT
+DATABASE AND STORAGE ARCHITECTURE (IMPLEMENTATION GRADE)
 ================================================================================
 
-  Stores covered: PostgreSQL · ChromaDB · Redis · File System
-  Rechecked and verified for consistency, relationships, and data flows.
+Canonical reference: SOURCE_OF_TRUTH.md
+
+Stores:
+1. PostgreSQL (system of record)
+2. Redis (queue + ephemeral runtime cache)
+3. Filesystem (artifacts)
+4. Optional vector store (feature flag)
 
 ================================================================================
-  DATABASE OVERVIEW
+1) POSTGRESQL SCHEMA
 ================================================================================
 
-  ┌─────────────────┬──────────────────────────────────────────────────────┐
-  │ Store           │ Role                                                 │
-  ├─────────────────┼──────────────────────────────────────────────────────┤
-  │ PostgreSQL      │ Primary relational store · 6 tables · Railway        │
-  │ ChromaDB        │ Vector knowledge base · 2 collections · Self-hosted  │
-  │ Redis           │ Job queue + ephemeral cache · Upstash Free Tier      │
-  │ File System     │ Per-run output files · results.json + report.pdf     │
-  └─────────────────┴──────────────────────────────────────────────────────┘
+Conventions:
+- Primary key type: UUID
+- Time type: TIMESTAMPTZ
+- snake_case naming
+- referential integrity enabled
 
-  COLUMN FLAG LEGEND
-  ──────────────────
-  [PK]   Primary Key
-  [FK]   Foreign Key
-  [IDX]  Indexed column
-  [UQ]   Unique constraint
-  [NN]   Not Null
-  [NULL] Nullable
+------------------------------------------------------------------------------
+TABLE runs
+------------------------------------------------------------------------------
+Purpose: one row per run
 
+Columns:
+- run_id UUID PK
+- fingerprint TEXT NOT NULL INDEX
+- repo_url TEXT NOT NULL
+- team_name VARCHAR(120) NOT NULL
+- leader_name VARCHAR(120) NOT NULL
+- branch_name VARCHAR(200) NOT NULL
+- status TEXT NOT NULL CHECK (status IN ('queued','running','passed','failed','quarantined'))
+- start_time TIMESTAMPTZ NOT NULL
+- end_time TIMESTAMPTZ NULL
+- total_time_secs DOUBLE PRECISION NULL
+- base_score INT NULL
+- speed_bonus INT NULL
+- efficiency_penalty INT NULL
+- final_score INT NULL
+- total_failures INT NULL
+- total_fixes INT NULL
+- total_commits INT NULL
+- total_iterations INT NULL
+- total_llm_cost_usd DOUBLE PRECISION NULL
+- quarantine_reason TEXT NULL
+- created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 
-================================================================================
-  SECTION 1 — POSTGRESQL
-  Provider : Railway (Free Tier)
-  ORM      : SQLAlchemy
-  Migrations: Alembic
-  Tables   : 6
-================================================================================
+Indexes:
+- idx_runs_status(status)
+- idx_runs_created_at(created_at DESC)
+- idx_runs_fingerprint(fingerprint)
 
-  All tables use UUID primary keys generated server-side.
-  All tables include created_at TIMESTAMPTZ DEFAULT now() unless noted.
+------------------------------------------------------------------------------
+TABLE fixes
+------------------------------------------------------------------------------
+Purpose: one row per fix attempt/result
 
-────────────────────────────────────────────────────────────────────────────────
-  TABLE: runs
-  Purpose : One record per agent execution. Root table — all others FK to this.
-────────────────────────────────────────────────────────────────────────────────
+Columns:
+- fix_id UUID PK
+- run_id UUID NOT NULL REFERENCES runs(run_id)
+- file_path TEXT NOT NULL
+- bug_type TEXT NOT NULL CHECK (bug_type IN ('LINTING','SYNTAX','LOGIC','TYPE_ERROR','IMPORT','INDENTATION'))
+- line_number INT NOT NULL
+- line_end INT NULL
+- description TEXT NOT NULL
+- fix_description TEXT NOT NULL
+- original_code TEXT NULL
+- fixed_code TEXT NULL
+- status TEXT NOT NULL CHECK (status IN ('applied','failed','rolled_back','skipped'))
+- commit_sha VARCHAR(40) NULL
+- commit_message TEXT NULL
+- confidence_score DOUBLE PRECISION NULL CHECK (confidence_score >= 0.0 AND confidence_score <= 1.0)
+- model_used VARCHAR(60) NULL
+- consensus_votes JSONB NULL
+- kb_match BOOLEAN NULL
+- causal_commit_sha VARCHAR(40) NULL
+- causal_explanation TEXT NULL
+- token_cost_usd DOUBLE PRECISION NULL
+- applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
 
-  Column                 Type               Flags        Notes
-  ─────────────────────────────────────────────────────────────────────────────
-  run_id                 UUID               [PK]         Auto-generated
-  repo_url               TEXT               [NN]         Submitted GitHub URL
-  team_name              VARCHAR(120)       [NN]
-  leader_name            VARCHAR(120)       [NN]
-  branch_name            VARCHAR(200)       [NN]         TEAM_LEADER_AI_Fix format
-  status                 ENUM               [NN][IDX]    queued | running | passed
-                                                         | failed | quarantined
-  start_time             TIMESTAMPTZ        [NN]
-  end_time               TIMESTAMPTZ        [NULL]       Null until complete
-  total_time_secs        FLOAT              [NULL]       Computed on finish
-  base_score             INT                [NULL]       Always 100
-  speed_bonus            INT                [NULL]       +10 if under 5 min
-  efficiency_penalty     INT                [NULL]       -2 per commit over 20
-  final_score            INT                [NULL]       Computed total
-  total_failures         INT                [NULL]       Detected on first scan
-  total_fixes            INT                [NULL]       Successfully applied
-  total_commits          INT                [NULL]       Total pushed commits
-  total_iterations       INT                [NULL]       CI/CD retry count
-  detected_languages     TEXT[]             [NULL]       Array of lang strings
-  total_llm_cost_usd     FLOAT              [NULL]       Sum across all models
-  pdf_report_path        TEXT               [NULL]       Path to generated PDF
-  quarantine_reason      TEXT               [NULL]       Null unless flagged
-  created_at             TIMESTAMPTZ        [NN]         DEFAULT now()
+Indexes:
+- idx_fixes_run_id(run_id)
+- idx_fixes_bug_status(bug_type,status)
+- idx_fixes_kb_match_true(kb_match) WHERE kb_match = true
 
+------------------------------------------------------------------------------
+TABLE ci_events
+------------------------------------------------------------------------------
+Purpose: one row per CI iteration
 
-────────────────────────────────────────────────────────────────────────────────
-  TABLE: fixes
-  Purpose : One record per individual bug fix applied during a run.
-────────────────────────────────────────────────────────────────────────────────
+Columns:
+- event_id UUID PK
+- run_id UUID NOT NULL REFERENCES runs(run_id)
+- iteration INT NOT NULL
+- github_run_id BIGINT NULL
+- status TEXT NOT NULL CHECK (status IN ('pending','running','passed','failed'))
+- failures_before INT NULL
+- failures_after INT NULL
+- new_failures TEXT[] NULL
+- regression_detected BOOLEAN NOT NULL DEFAULT false
+- rollback_triggered BOOLEAN NOT NULL DEFAULT false
+- rollback_commit_sha VARCHAR(40) NULL
+- duration_secs DOUBLE PRECISION NULL
+- triggered_at TIMESTAMPTZ NOT NULL
+- completed_at TIMESTAMPTZ NULL
 
-  Column                 Type               Flags        Notes
-  ─────────────────────────────────────────────────────────────────────────────
-  fix_id                 UUID               [PK]
-  run_id                 UUID               [FK][IDX]    FK → runs.run_id
-  file_path              TEXT               [NN]         Relative path in repo
-  bug_type               ENUM               [NN][IDX]    LINTING | SYNTAX | LOGIC
-                                                         | TYPE_ERROR | IMPORT
-                                                         | INDENTATION
-                                                         | PIPELINE_CONFIG
-                                                         | SECRET_LEAK
-  line_number            INT                [NN]         Detected line
-  line_end               INT                [NULL]       For multi-line bugs
-  description            TEXT               [NN]         Human-readable bug desc
-  fix_description        TEXT               [NN]         What the fix does
-  original_code          TEXT               [NULL]       Code snippet before fix
-  fixed_code             TEXT               [NULL]       Code snippet after fix
-  commit_sha             VARCHAR(40)        [NULL]       GitHub commit hash
-  commit_message         TEXT               [NULL]       [AI-AGENT] prefix enforced
-  status                 ENUM               [NN]         applied | failed
-                                                         | rolled_back | skipped
-  confidence_score       FLOAT              [NULL]       0.0 – 1.0
-  model_used             VARCHAR(60)        [NULL]       gpt-4o | claude-sonnet
-                                                         | gemini-flash | kb_match
-  consensus_votes        JSONB              [NULL]       {model: fix_hash} per model
-  kb_match               BOOLEAN            [NULL][IDX]  True if from ChromaDB KB
-  causal_commit_sha      VARCHAR(40)        [NULL]       Commit that introduced bug
-  causal_explanation     TEXT               [NULL]       NL attribution text
-  token_cost_usd         FLOAT              [NULL]       LLM cost for this fix
-  applied_at             TIMESTAMPTZ        [NN]         DEFAULT now()
+Indexes:
+- idx_ci_events_run_iter(run_id, iteration)
 
+------------------------------------------------------------------------------
+TABLE execution_traces
+------------------------------------------------------------------------------
+Purpose: authoritative replay stream
 
-────────────────────────────────────────────────────────────────────────────────
-  TABLE: ci_events
-  Purpose : One record per CI/CD pipeline run attempt (GitHub Actions trigger).
-────────────────────────────────────────────────────────────────────────────────
+Columns:
+- trace_id UUID PK
+- run_id UUID NOT NULL REFERENCES runs(run_id)
+- step_index INT NOT NULL
+- agent_node VARCHAR(60) NOT NULL
+- action_type VARCHAR(60) NOT NULL
+- action_label TEXT NOT NULL
+- payload JSONB NULL
+- thought_text TEXT NULL
+- related_fix_id UUID NULL REFERENCES fixes(fix_id)
+- related_ci_event_id UUID NULL REFERENCES ci_events(event_id)
+- emitted_at TIMESTAMPTZ NOT NULL DEFAULT now()
 
-  Column                 Type               Flags        Notes
-  ─────────────────────────────────────────────────────────────────────────────
-  event_id               UUID               [PK]
-  run_id                 UUID               [FK][IDX]    FK → runs.run_id
-  iteration              INT                [NN]         1-indexed retry number
-  github_run_id          BIGINT             [NN]         GitHub Actions run ID
-  status                 ENUM               [NN]         pending | running
-                                                         | passed | failed
-  failures_before        INT                [NULL]       Failing tests at start
-  failures_after         INT                [NULL]       Failing tests at end
-  new_failures           TEXT[]             [NULL]       Regressions introduced
-  regression_detected    BOOLEAN            [NN]         DEFAULT false
-  rollback_triggered     BOOLEAN            [NN]         DEFAULT false
-  rollback_commit_sha    VARCHAR(40)        [NULL]       Reverted commit SHA
-  speculative_branch     BOOLEAN            [NN]         True if parallel branch run
-  duration_secs          FLOAT              [NULL]       CI pipeline duration
-  triggered_at           TIMESTAMPTZ        [NN]
-  completed_at           TIMESTAMPTZ        [NULL]
+Indexes:
+- idx_traces_run_step(run_id, step_index)
 
+------------------------------------------------------------------------------
+TABLE strategy_weights
+------------------------------------------------------------------------------
+Purpose: adaptive strategy metadata
 
-────────────────────────────────────────────────────────────────────────────────
-  TABLE: execution_traces
-  Purpose : Full ordered event log per run. Powers Replay Mode and NL interrogation.
-────────────────────────────────────────────────────────────────────────────────
+Columns:
+- weight_id UUID PK
+- bug_type TEXT UNIQUE NOT NULL
+- strategy_rule_first DOUBLE PRECISION NOT NULL
+- strategy_llm_single DOUBLE PRECISION NOT NULL
+- strategy_llm_consensus DOUBLE PRECISION NOT NULL
+- strategy_kb_lookup DOUBLE PRECISION NOT NULL
+- total_attempts INT NOT NULL
+- total_successes INT NOT NULL
+- generation INT NOT NULL
+- last_evolved_at TIMESTAMPTZ NULL
 
-  Column                 Type               Flags        Notes
-  ─────────────────────────────────────────────────────────────────────────────
-  trace_id               UUID               [PK]
-  run_id                 UUID               [FK][IDX]    FK → runs.run_id
-  step_index             INT                [NN][IDX]    Ordering within run
-  agent_node             VARCHAR(60)        [NN]         LangGraph node name
-  action_type            VARCHAR(60)        [NN]         tool_call | decision
-                                                         | emit | error
-  action_label           TEXT               [NN]         Human-readable label
-  payload                JSONB              [NULL]       Full event payload
-  thought_text           TEXT               [NULL]       Agent reasoning text
-  related_fix_id         UUID               [NULL]       FK → fixes.fix_id
-  related_ci_event_id    UUID               [NULL]       FK → ci_events.event_id
-  emitted_at             TIMESTAMPTZ        [NN]         DEFAULT now()
+------------------------------------------------------------------------------
+TABLE benchmark_scores
+------------------------------------------------------------------------------
+Purpose: score breakdown evidence per run
 
+Columns:
+- bench_id UUID PK
+- run_id UUID NOT NULL REFERENCES runs(run_id)
+- criterion VARCHAR(80) NOT NULL
+- max_points INT NOT NULL
+- predicted_score INT NOT NULL
+- actual_score INT NULL
+- calibration_gap INT NULL
+- reasoning TEXT NULL
+- scored_at TIMESTAMPTZ NOT NULL DEFAULT now()
 
-────────────────────────────────────────────────────────────────────────────────
-  TABLE: strategy_weights
-  Purpose : Genetic algorithm evolution state. One row per bug type.
-────────────────────────────────────────────────────────────────────────────────
-
-  Column                 Type               Flags        Notes
-  ─────────────────────────────────────────────────────────────────────────────
-  weight_id              UUID               [PK]
-  bug_type               ENUM               [UQ][NN]     One row per bug type
-  strategy_ast_rewrite   FLOAT              [NN]         Weight 0.0 – 1.0
-  strategy_line_replace  FLOAT              [NN]         Weight 0.0 – 1.0
-  strategy_fn_regenerate FLOAT              [NN]         Weight 0.0 – 1.0
-  strategy_kb_match      FLOAT              [NN]         Weight 0.0 – 1.0
-  total_attempts         INT                [NN]         Lifetime attempts
-  total_successes        INT                [NN]         Lifetime successes
-  last_evolved_at        TIMESTAMPTZ        [NULL]       Last GA step timestamp
-  generation             INT                [NN]         GA generation number
-
-
-────────────────────────────────────────────────────────────────────────────────
-  TABLE: benchmark_scores
-  Purpose : Self-benchmarking results vs hackathon rubric. One row per criterion per run.
-────────────────────────────────────────────────────────────────────────────────
-
-  Column                 Type               Flags        Notes
-  ─────────────────────────────────────────────────────────────────────────────
-  bench_id               UUID               [PK]
-  run_id                 UUID               [FK][IDX]    FK → runs.run_id
-  criterion              VARCHAR(80)        [NN]         Rubric criterion name
-  max_points             INT                [NN]         Rubric max for criterion
-  predicted_score        INT                [NN]         Agent self-prediction
-  actual_score           INT                [NULL]       Computed actual score
-  calibration_gap        INT                [NULL]       actual - predicted
-  reasoning              TEXT               [NULL]       Agent justification text
-  scored_at              TIMESTAMPTZ        [NN]         DEFAULT now()
-
+Indexes:
+- idx_benchmark_run_criterion(run_id, criterion)
 
 ================================================================================
-  SECTION 2 — CHROMADB
-  Provider   : Self-hosted (free)
-  Embeddings : OpenAI text-embedding-3-small (1536 dimensions)
-  Scope      : Cross-repo — shared across all teams and all runs
-  Collections: 2
+2) RECOMMENDED SQL DDL (STARTER)
 ================================================================================
 
-────────────────────────────────────────────────────────────────────────────────
-  COLLECTION: fix_patterns
-  Purpose : Stores successful fix embeddings for semantic KB lookup.
-            Only confirmed CI-passing fixes are written here.
-            Rolled-back fixes are never embedded.
-────────────────────────────────────────────────────────────────────────────────
-
-  Field                  Type               Notes
-  ─────────────────────────────────────────────────────────────────────────────
-  id                     STRING             fix_id from PostgreSQL fixes table
-  embedding              VECTOR(1536)       text-embedding-3-small output
-  document               STRING             original_code + fixed_code
-                                            + description combined
-  bug_type               METADATA           Filterable · LINTING|SYNTAX etc.
-  language               METADATA           python|javascript|typescript
-                                            |java|go|rust
-  strategy_used          METADATA           ast_rewrite|line_replace
-                                            |fn_regenerate
-  model_used             METADATA           Which LLM generated this fix
-  confidence_score       METADATA           Float 0.0 – 1.0
-  repo_url               METADATA           Source repo (cross-repo tracking)
-  created_at             METADATA           ISO timestamp
-
-  QUERY PATTERN:
-    Input  : bug description + code snippet (embedded)
-    Filter : bug_type = <current bug type>
-    Return : top-k most similar past fixes
-    Action : if similarity > threshold → apply fix → skip LLM call entirely
-             if similarity < threshold → proceed to 3-LLM consensus call
-
-
-────────────────────────────────────────────────────────────────────────────────
-  COLLECTION: adversarial_tests
-  Purpose : Stores generated edge-case test embeddings for cross-run reuse.
-────────────────────────────────────────────────────────────────────────────────
-
-  Field                  Type               Notes
-  ─────────────────────────────────────────────────────────────────────────────
-  id                     STRING             UUID + run_id composite
-  embedding              VECTOR(1536)       Test code embedding
-  document               STRING             Full test code
-  target_file            METADATA           File the test targets
-  target_function        METADATA           Function under test
-  bug_type_fixed         METADATA           Bug type this test guards against
-  language               METADATA           Test language
-  ci_passed              METADATA           True if passed in final CI run
-  run_id                 METADATA           Linked run ID
-
+Use `SCHEMA.sql` for executable DDL. Keep this doc as architecture-level contract.
 
 ================================================================================
-  SECTION 3 — REDIS
-  Provider : Upstash (Free Tier)
-  Library  : BullMQ (Node.js)
-  TTL      : Run cache — 2 hours | Event buffer — 30 minutes
+3) REDIS KEYSPACE DESIGN
 ================================================================================
 
-────────────────────────────────────────────────────────────────────────────────
-  NAMESPACE 1 — BullMQ Job Keys
-  Managed automatically by BullMQ library.
-────────────────────────────────────────────────────────────────────────────────
+3.1 BullMQ-managed keys
+- `bull:agent-runs:*`
+- `bull:pdf-export:*`
 
-  Key                             Type    Notes
-  ─────────────────────────────────────────────────────────────────────────────
-  bull:agent-runs:waiting         LIST    Queued job IDs
-  bull:agent-runs:active          LIST    In-progress job IDs
-  bull:agent-runs:completed       ZSET    Completed job IDs + timestamps
-  bull:agent-runs:failed          ZSET    Failed job IDs + error info
-  bull:agent-runs:{job_id}        HASH    Full job payload + metadata
-  bull:pdf-export:waiting         LIST    PDF generation queue
-  bull:report-gen:waiting         LIST    results.json write queue
+3.2 Runtime state cache (TTL 2h)
+- `run:{run_id}:status`
+- `run:{run_id}:current_node`
+- `run:{run_id}:iteration`
+- `run:{run_id}:score`
+- `run:{run_id}:commit_count`
+- `run:{run_id}:cost_usd`
+- `run:{run_id}:telemetry` (hash)
 
+3.3 Event buffer (TTL 30m)
+- `events:{run_id}` (list)
+- `events:{run_id}:count`
 
-────────────────────────────────────────────────────────────────────────────────
-  NAMESPACE 2 — Active Run Cache
-  TTL: 2 hours. Auto-expires after run ends.
-  Mirrors live agent state for real-time dashboard reads.
-────────────────────────────────────────────────────────────────────────────────
+3.4 Dedupe and locks
+- `run:fingerprint:{fingerprint}` (active run mapping)
+- `lock:fingerprint:{fingerprint}` (short lock)
 
-  Key                             Type    TTL       Notes
-  ─────────────────────────────────────────────────────────────────────────────
-  run:{run_id}:status             STRING  2h        Current run status
-  run:{run_id}:current_node       STRING  2h        Active LangGraph node name
-  run:{run_id}:iteration          STRING  2h        Current CI iteration number
-  run:{run_id}:score              STRING  2h        Live score (updates in real time)
-  run:{run_id}:commit_count       STRING  2h        Running commit counter
-  run:{run_id}:cost_usd           STRING  2h        Cumulative LLM cost
-  run:{run_id}:telemetry          HASH    2h        cpu_pct, mem_mb, container_id
-
-
-────────────────────────────────────────────────────────────────────────────────
-  NAMESPACE 3 — WebSocket Event Buffer + Session
-  TTL: 30 minutes. Allows late-joining clients to catch up on missed events.
-────────────────────────────────────────────────────────────────────────────────
-
-  Key                             Type    TTL       Notes
-  ─────────────────────────────────────────────────────────────────────────────
-  events:{run_id}                 LIST    30m       Ordered event log per run
-  events:{run_id}:count           STRING  30m       Total event count
-  socket:rooms                    HASH    -         run_id → socket room map
-  session:{session_id}            HASH    24h       Express session data
-  ratelimit:{ip}                  STRING  1m        Request count for rate limiting
-  lock:run:{run_id}               STRING  60s       Distributed lock — prevents
-                                                    duplicate parallel runs
-
+3.5 Session/rate limit
+- `session:{session_id}`
+- `ratelimit:{ip}`
 
 ================================================================================
-  SECTION 4 — FILE SYSTEM
-  Location : /outputs/{run_id}/
-  Files    : 2 per run
-  Served via: GET /results/:runId and GET /report/:runId
+4) FILESYSTEM ARTIFACTS
 ================================================================================
 
-────────────────────────────────────────────────────────────────────────────────
-  FILE: results.json
-  Path    : /outputs/{run_id}/results.json
-  Written : End of every run by self_benchmarker node
-  Required: MANDATORY hackathon submission output
-────────────────────────────────────────────────────────────────────────────────
+Per run directory:
+- `/outputs/{run_id}/results.json`
+- `/outputs/{run_id}/report.pdf`
 
-  Field                  Type               Notes
-  ─────────────────────────────────────────────────────────────────────────────
-  run_id                 string             UUID
-  repo_url               string             Submitted URL
-  team_name              string
-  leader_name            string
-  branch_name            string             TEAM_LEADER_AI_Fix format
-  final_status           string             PASSED | FAILED
-  total_failures         number             Detected on first scan
-  total_fixes            number             Successfully applied
-  total_time_secs        number
-  score                  object             { base, speed_bonus,
-                                             efficiency_penalty, total }
-  fixes                  array              [ { file, bug_type, line_number,
-                                               commit_message, status } ]
-  ci_log                 array              [ { iteration, status,
-                                               timestamp, regression } ]
-
-
-────────────────────────────────────────────────────────────────────────────────
-  FILE: report.pdf
-  Path    : /outputs/{run_id}/report.pdf
-  Written : By Puppeteer headless Chrome via pdf-export BullMQ job
-  Trigger : Fires after results.json is written
-────────────────────────────────────────────────────────────────────────────────
-
-  Section                Notes
-  ─────────────────────────────────────────────────────────────────────────────
-  Cover Page             Team, repo URL, branch name, score summary
-  Score Breakdown        Visual chart + base / bonus / penalty breakdown
-  Fixes Table            Full fix log with confidence scores and commit SHAs
-  CI/CD Timeline         Per-iteration pass/fail + timestamps + rollback events
-  Causal Attributions    NL explanations for each bug's origin commit
-  Self-Benchmark         Predicted vs actual per rubric criterion
-  Cost Summary           Per-model token usage and cost breakdown
-  Strategy Evolution     Current GA weights per bug type with trend notes
-
+Write order:
+1. write results JSON after terminal status
+2. generate PDF from terminal state asynchronously
 
 ================================================================================
-  TABLE RELATIONSHIPS & FOREIGN KEYS
+5) CANONICAL results.json SCHEMA
 ================================================================================
 
-  ┌─────────────────────────┬──────┬─────────────────────┬───────────────────────────────────┐
-  │ From                    │ Rel  │ To                  │ Via                               │
-  ├─────────────────────────┼──────┼─────────────────────┼───────────────────────────────────┤
-  │ runs                    │ 1:N  │ fixes               │ fixes.run_id FK                   │
-  │ runs                    │ 1:N  │ ci_events           │ ci_events.run_id FK               │
-  │ runs                    │ 1:N  │ execution_traces    │ execution_traces.run_id FK        │
-  │ runs                    │ 1:N  │ benchmark_scores    │ benchmark_scores.run_id FK        │
-  │ fixes                   │ 1:1  │ execution_traces    │ traces.related_fix_id (nullable)  │
-  │ ci_events               │ 1:1  │ execution_traces    │ traces.related_ci_event_id (null) │
-  │ fixes                   │ REF  │ fix_patterns(Chroma)│ chroma id = fixes.fix_id          │
-  │                         │      │                     │ only on CI-confirmed fixes        │
-  │ strategy_weights        │ DRV  │ fixes               │ weights evolved from              │
-  │                         │      │                     │ fixes.status aggregates           │
-  │ runs                    │ MIR  │ Redis run:{id}:*    │ live cache mirrors PG run state   │
-  │ runs                    │ 1:1  │ results.json        │ one file per run in /outputs/     │
-  │ runs                    │ 1:1  │ report.pdf          │ one file per run in /outputs/     │
-  └─────────────────────────┴──────┴─────────────────────┴───────────────────────────────────┘
+Required top-level fields:
+- `run_id` string
+- `repo_url` string
+- `team_name` string
+- `leader_name` string
+- `branch_name` string
+- `final_status` enum: `PASSED | FAILED | QUARANTINED`
+- `total_failures` number
+- `total_fixes` number
+- `total_time_secs` number
+- `score` object
+- `fixes` array
+- `ci_log` array
 
-  Relationship types:
-    1:N  — One-to-many (FK enforced at DB level)
-    1:1  — One-to-one (nullable FK)
-    REF  — Cross-store reference (no DB-level enforcement, app-level only)
-    DRV  — Derived relationship (data computed from aggregate query)
-    MIR  — Mirrored (Redis caches subset of PostgreSQL fields for speed)
+`score` object:
+- `base`
+- `speed_bonus`
+- `efficiency_penalty`
+- `total`
 
+`fixes[]` minimum fields:
+- `file`
+- `bug_type`
+- `line_number`
+- `commit_message`
+- `status`
 
-================================================================================
-  DATABASE INDEXES
-================================================================================
-
-  ┌──────────────────────┬─────────────────────────────────┬──────────────┬──────────────────────────────────────┐
-  │ Table                │ Columns                         │ Type         │ Reason                               │
-  ├──────────────────────┼─────────────────────────────────┼──────────────┼──────────────────────────────────────┤
-  │ runs                 │ status                          │ B-Tree       │ Filter active/queued for worker poll │
-  │ runs                 │ created_at DESC                 │ B-Tree       │ Dashboard recent runs list           │
-  │ fixes                │ run_id                          │ B-Tree       │ Join fixes to run — most common      │
-  │ fixes                │ bug_type, status                │ Composite    │ Strategy weight aggregation          │
-  │ fixes                │ kb_match WHERE kb_match=true    │ Partial      │ Count KB hits vs LLM calls           │
-  │ ci_events            │ run_id, iteration               │ Composite    │ CI timeline ordered per run          │
-  │ execution_traces     │ run_id, step_index ASC          │ Composite    │ Ordered replay trace fetch           │
-  │ strategy_weights     │ bug_type                        │ Unique       │ One weight row per bug type          │
-  │ benchmark_scores     │ run_id, criterion               │ Composite    │ Fetch all rubric scores per run      │
-  │ fix_patterns (Chroma)│ embedding + metadata bug_type   │ HNSW+Filter  │ Fast ANN search by bug type          │
-  └──────────────────────┴─────────────────────────────────┴──────────────┴──────────────────────────────────────┘
-
+`ci_log[]` minimum fields:
+- `iteration`
+- `status`
+- `timestamp`
+- `regression`
 
 ================================================================================
-  DATA FLOWS — WRITE & READ PATHS
+6) OPTIONAL VECTOR STORE CONTRACT (FEATURE FLAG)
 ================================================================================
 
-  ── PostgreSQL Write Flow ─────────────────────────────────────────────────────
+Collection: `fix_patterns`
+- id: `fix_id`
+- document: derived fix context
+- metadata: bug_type, language, model_used, confidence_score
 
-  W1  Agent starts
-        → INSERT runs (status = running, start_time = now())
-
-  W2  Each fix committed to GitHub
-        → INSERT fixes (file_path, bug_type, line_number, commit_sha,
-                        confidence_score, model_used, consensus_votes)
-
-  W3  Each GitHub Actions run detected
-        → INSERT ci_events (iteration, github_run_id, status,
-                            regression_detected, rollback_triggered)
-
-  W4  Each agent node emits an action
-        → INSERT execution_traces (agent_node, action_type, payload,
-                                   thought_text, step_index)
-
-  W5  Run completes (pass or fail)
-        → UPDATE runs (status, end_time, total_time_secs,
-                       final_score, total_commits, total_fixes)
-
-  W6  Self-benchmarker node runs
-        → INSERT benchmark_scores (one row per rubric criterion,
-                                   predicted_score, calibration_gap)
-
-  W7  Genetic algorithm step
-        → UPDATE strategy_weights (strategy_* weights, generation,
-                                   last_evolved_at) for each bug type seen
-
-
-  ── ChromaDB Write & Read Flow ────────────────────────────────────────────────
-
-  R1  Before every LLM fix call
-        → Query fix_patterns with embedded bug description
-        → Filter by bug_type metadata
-        → Return top-k most similar past fixes
-
-  R2  KB hit (similarity > threshold)
-        → Apply fix directly
-        → Set fixes.kb_match = true
-        → Skip LLM call entirely
-        → "Pattern Match ⚡" badge shown on dashboard
-
-  R3  KB miss (similarity < threshold)
-        → Proceed to 3-LLM parallel consensus call
-
-  W1  Fix applied + CI passes
-        → Embed document (original_code + fixed_code + description)
-          via OpenAI text-embedding-3-small
-        → Upsert into fix_patterns collection
-
-  W2  Adversarial test generated
-        → Embed test code
-        → Upsert into adversarial_tests collection
-
-  RULE: Rolled-back fixes are NEVER written to ChromaDB.
-        Only CI-confirmed successful fixes enter the knowledge base.
-
-
-  ── Redis Write & Read Flow ───────────────────────────────────────────────────
-
-  W1  Job enqueued by Express API
-        → BullMQ writes to bull:agent-runs:waiting LIST
-
-  W2  Agent starts (FastAPI)
-        → SET run:{id}:status = "running"
-        → SET run:{id}:current_node = "repo_scanner"
-
-  W3  Each agent node transition
-        → SET run:{id}:current_node = <new node>
-
-  W4  Each fix committed
-        → INCR run:{id}:commit_count
-        → SET  run:{id}:score = <updated live score>
-
-  W5  Each agent event (thought, fix, CI update)
-        → RPUSH events:{run_id} <serialized event JSON>
-
-  W6  psutil telemetry tick (every 1 second)
-        → HSET run:{id}:telemetry cpu_pct <val> mem_mb <val>
-
-  R1  New frontend client connects mid-run
-        → LRANGE events:{run_id} 0 -1 to replay all missed events
-
-  R2  Dashboard score card polling
-        → GET run:{id}:score
-        → GET run:{id}:commit_count
-
-  R3  Duplicate run prevention
-        → SET lock:run:{run_id} NX EX 60
-        → If key already exists → reject duplicate submission
-
-  X1  Run completes
-        → All run:{id}:* keys set to expire at TTL (2 hours)
-        → events:{run_id} expires at 30 minutes
-
-
-  ── File System Write & Read Flow ─────────────────────────────────────────────
-
-  W1  Run complete → self_benchmarker node
-        → Write results.json to /outputs/{run_id}/results.json
-        → UPDATE runs.pdf_report_path in PostgreSQL
-
-  W2  BullMQ pdf-export job triggered
-        → Puppeteer renders full HTML report
-        → Write report.pdf to /outputs/{run_id}/report.pdf
-
-  R1  Frontend fetches run results
-        → GET /results/{run_id}
-        → Express reads and serves results.json as JSON
-
-  R2  Frontend PDF download button
-        → GET /report/{run_id}
-        → Express streams report.pdf as attachment download
-
-  R3  Natural language interrogation (post-run)
-        → Reads from execution_traces in PostgreSQL (NOT file system)
-        → execution_traces is the authoritative replay source
-
+Rule:
+- Only CI-confirmed successful fixes are indexed.
+- Redact secrets before indexing.
 
 ================================================================================
-  QUERY EXAMPLES — COMMON ACCESS PATTERNS
+7) CONSISTENCY RULES
 ================================================================================
 
-  1. Fetch all fixes for a run (dashboard fixes table)
-     ──────────────────────────────────────────────────
-     SELECT f.*, r.team_name, r.branch_name
-     FROM fixes f
-     JOIN runs r ON f.run_id = r.run_id
-     WHERE f.run_id = $1
-     ORDER BY f.applied_at ASC;
-
-  2. Fetch CI timeline for a run
-     ────────────────────────────
-     SELECT * FROM ci_events
-     WHERE run_id = $1
-     ORDER BY iteration ASC;
-
-  3. Fetch full replay trace
-     ────────────────────────
-     SELECT * FROM execution_traces
-     WHERE run_id = $1
-     ORDER BY step_index ASC;
-
-  4. Fetch self-benchmark for a run
-     ────────────────────────────────
-     SELECT criterion, max_points, predicted_score, actual_score,
-            calibration_gap
-     FROM benchmark_scores
-     WHERE run_id = $1
-     ORDER BY criterion;
-
-  5. Aggregate strategy success rates (for GA evolution)
-     ──────────────────────────────────────────────────────
-     SELECT bug_type,
-            COUNT(*) FILTER (WHERE status = 'applied') AS successes,
-            COUNT(*) AS total,
-            AVG(confidence_score) AS avg_confidence
-     FROM fixes
-     WHERE run_id = $1
-     GROUP BY bug_type;
-
-  6. Count KB hits vs LLM calls (efficiency metric)
-     ──────────────────────────────────────────────────
-     SELECT
-       COUNT(*) FILTER (WHERE kb_match = true)  AS kb_hits,
-       COUNT(*) FILTER (WHERE kb_match = false) AS llm_calls
-     FROM fixes;
-
-  7. Cross-repo most common bug types (knowledge base analytics)
-     ─────────────────────────────────────────────────────────────
-     SELECT bug_type, COUNT(*) AS occurrences,
-            AVG(confidence_score) AS avg_confidence
-     FROM fixes
-     WHERE status = 'applied'
-     GROUP BY bug_type
-     ORDER BY occurrences DESC;
-
+1. `execution_traces` is authoritative for replay and NL interrogation.
+2. `confidence_score` stored in [0.0,1.0], UI renders percent.
+3. Required bug types in primary table must match track list.
+4. Run dedupe uses fingerprint, not run_id.
+5. `results.json` must be generated for every terminal run.
 
 ================================================================================
-  ENVIRONMENT VARIABLES — DATABASE CONNECTIONS
+8) DATA RETENTION POLICY
 ================================================================================
 
-  # PostgreSQL
-  DATABASE_URL=postgresql://user:password@host:5432/rift_agent
-
-  # Redis / Upstash
-  REDIS_URL=redis://default:password@host:6379
-
-  # ChromaDB
-  CHROMA_HOST=localhost
-  CHROMA_PORT=8002
-  CHROMA_COLLECTION_FIXES=fix_patterns
-  CHROMA_COLLECTION_TESTS=adversarial_tests
-
-  # OpenAI (for ChromaDB embeddings)
-  OPENAI_API_KEY=sk-...
-
-  # File System
-  OUTPUT_DIR=/outputs
-
+Recommended defaults:
+- PostgreSQL: retain run records for hackathon window, then archive.
+- Redis runtime keys: 2h TTL.
+- Redis event buffer: 30m TTL.
+- Artifact files: persist at least through judging period.
+- Optional vector store: only if policy-approved and redaction-enabled.
 
 ================================================================================
-  DATA RETENTION POLICY
-================================================================================
-
-  PostgreSQL    : Persistent — no automatic cleanup
-                  Old runs are kept for cross-run strategy evolution
-                  Manual cleanup recommended after 30 days for hackathon use
-
-  ChromaDB      : Persistent — grows across all runs and teams
-                  Only successful fixes are stored (quality gate enforced)
-                  No TTL — knowledge base is intentionally permanent
-
-  Redis         : Ephemeral by design
-                  Run cache keys  → expire 2 hours after run end
-                  Event buffers   → expire 30 minutes after run end
-                  BullMQ jobs     → auto-cleaned by BullMQ after completion
-                  Session keys    → expire 24 hours
-
-  File System   : Persistent per deployment
-                  results.json and report.pdf kept indefinitely
-                  /outputs directory should be backed up before redeployment
-
-
-================================================================================
-  END OF DATABASE ARCHITECTURE DOCUMENT
-  RIFT 2026 — Autonomous CI/CD Healing Agent
+END OF DATABASE ARCHITECTURE SPEC
 ================================================================================
