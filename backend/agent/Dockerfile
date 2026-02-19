@@ -1,8 +1,11 @@
 FROM python:3.11-slim AS base
 
 # Install git (needed for gitpython to clone repos)
+# Install Node.js 20 (needed to run JS/TS test suites like jest/vitest)
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends git && \
+    apt-get install -y --no-install-recommends git curl ca-certificates && \
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y --no-install-recommends nodejs && \
     rm -rf /var/lib/apt/lists/*
 
 ENV PYTHONDONTWRITEBYTECODE=1 \

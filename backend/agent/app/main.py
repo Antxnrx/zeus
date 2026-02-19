@@ -238,6 +238,7 @@ async def agent_query(payload: AgentQueryRequest) -> AgentQueryResponse:
     """
     from .config import OPENAI_API_KEY, OPENAI_MODEL
     from .db import get_fixes_for_run, get_run, get_traces_for_run
+    from .llm import get_llm, has_llm_keys
 
     run_id = payload.run_id
 
@@ -267,13 +268,12 @@ async def agent_query(payload: AgentQueryRequest) -> AgentQueryResponse:
         f"Fixes:\n{fix_summary}\n"
     )
 
-    # If we have an LLM key, use it for a better answer
-    if OPENAI_API_KEY:
+    # If we have LLM keys, use it for a better answer
+    if has_llm_keys():
         try:
-            from langchain_openai import ChatOpenAI
             from langchain_core.messages import HumanMessage, SystemMessage
 
-            llm = ChatOpenAI(model=OPENAI_MODEL, temperature=0.3, api_key=OPENAI_API_KEY)
+            llm = get_llm(temperature=0.3)
             resp = await llm.ainvoke([
                 SystemMessage(
                     content=(
@@ -294,7 +294,7 @@ async def agent_query(payload: AgentQueryRequest) -> AgentQueryResponse:
         answer = (
             f"Run {run_id} status: {run_row.get('status')}. "
             f"{len(traces)} trace steps, {len(fixes)} fixes recorded. "
-            f"(LLM unavailable — set OPENAI_API_KEY for detailed answers)"
+            f"(LLM unavailable — set GROQ_API_KEYS for detailed answers)"
         )
 
     evidence = [

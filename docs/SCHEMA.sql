@@ -64,7 +64,7 @@ create table if not exists ci_events (
   run_id text not null references runs(run_id) on delete cascade,
   iteration int not null,
   github_run_id bigint,
-  status text not null check (status in ('pending','running','passed','failed')),
+  status text not null check (status in ('pending','running','passed','failed','no_ci')),
   failures_before int,
   failures_after int,
   new_failures text[],

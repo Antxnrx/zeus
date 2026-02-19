@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import re
 from pathlib import Path
 
 from git import Repo as GitRepo  # type: ignore[import-untyped]
@@ -20,6 +22,25 @@ from ..state import AgentState, FixRecord
 logger = logging.getLogger("rift.node.commit_push")
 
 _PROTECTED_BRANCHES = {"main", "master", "develop", "release"}
+
+
+def _auth_remote_url(url: str) -> str:
+    """
+    Inject GITHUB_TOKEN into an HTTPS git remote URL for authentication.
+    Transforms:  https://github.com/user/repo.git
+    Into:        https://x-access-token:<token>@github.com/user/repo.git
+    """
+    token = os.getenv("GITHUB_TOKEN", "")
+    if not token:
+        return url
+    # Already has credentials embedded
+    if "@" in url.split("//", 1)[-1]:
+        return url
+    # Only modify HTTPS URLs
+    m = re.match(r"https://(.+)", url)
+    if m:
+        return f"https://x-access-token:{token}@{m.group(1)}"
+    return url
 
 
 async def commit_push(state: AgentState) -> AgentState:
@@ -61,6 +82,11 @@ async def commit_push(state: AgentState) -> AgentState:
     def _do_commit() -> tuple[str, int]:
         repo = GitRepo(repo_dir)
 
+        # Configure git user for commits inside this repo
+        with repo.config_writer("repository") as cw:
+            cw.set_value("user", "name", "RIFT AI Agent")
+            cw.set_value("user", "email", "rift-agent@noreply.github.com")
+
         # Ensure we're on the right branch
         if repo.active_branch.name != branch_name:
             repo.heads[branch_name].checkout()  # type: ignore[union-attr]
@@ -75,9 +101,19 @@ async def commit_push(state: AgentState) -> AgentState:
         repo.index.commit(msg)
         commit_sha = repo.head.commit.hexsha[:7]
 
-        # Push
+        # Inject auth token into remote URL for push
         origin = repo.remotes.origin
-        origin.push(branch_name)
+        original_url = origin.url
+        auth_url = _auth_remote_url(original_url)
+        if auth_url != original_url:
+            origin.set_url(auth_url)
+
+        try:
+            origin.push(branch_name)
+        finally:
+            # Restore original URL (don't persist token on disk)
+            if auth_url != original_url:
+                origin.set_url(original_url)
 
         return commit_sha, 1
 

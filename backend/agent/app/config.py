@@ -9,7 +9,16 @@ import os
 from pathlib import Path
 
 
-# ── LLM / AI ────────────────────────────────────────────────
+# ── LLM / AI (Groq — round-robin across multiple keys) ─────
+GROQ_API_KEYS: list[str] = [
+    k.strip()
+    for k in os.getenv("GROQ_API_KEYS", "").split(",")
+    if k.strip()
+]
+GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+GROQ_TEMPERATURE: float = float(os.getenv("GROQ_TEMPERATURE", "0.2"))
+
+# Legacy OpenAI — kept for backward compat but unused by default
 OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
 OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 OPENAI_TEMPERATURE: float = float(os.getenv("OPENAI_TEMPERATURE", "0.2"))

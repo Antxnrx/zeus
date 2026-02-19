@@ -71,6 +71,20 @@ type Action =
   | { type: "SET_ERROR"; error: string }
   | { type: "RESET" };
 
+// ── Dedup helpers (prevent duplicate events from Socket.io re-delivery) ──
+
+function thoughtKey(t: ThoughtEvent): string {
+  return `${t.run_id}|${t.node}|${t.step_index}|${t.message}`;
+}
+
+function fixKey(f: FixAppliedEvent): string {
+  return `${f.run_id}|${f.file}|${f.line}|${f.bug_type}|${f.status}`;
+}
+
+function ciKey(c: CiUpdateEvent): string {
+  return `${c.run_id}|${c.iteration}|${c.status}|${c.regression}`;
+}
+
 function reducer(state: RunState, action: Action): RunState {
   switch (action.type) {
     case "SET_RUN":
@@ -91,26 +105,35 @@ function reducer(state: RunState, action: Action): RunState {
         progressPct: action.payload.progress_pct,
       };
 
-    case "ADD_THOUGHT":
+    case "ADD_THOUGHT": {
+      const key = thoughtKey(action.payload);
+      if (state.thoughts.some((t) => thoughtKey(t) === key)) return state;
       return {
         ...state,
         thoughts: [...state.thoughts, action.payload],
         currentNode: action.payload.node,
         status: "running",
       };
+    }
 
-    case "ADD_FIX":
+    case "ADD_FIX": {
+      const key = fixKey(action.payload);
+      if (state.fixes.some((f) => fixKey(f) === key)) return state;
       return {
         ...state,
         fixes: [...state.fixes, action.payload],
       };
+    }
 
-    case "ADD_CI_EVENT":
+    case "ADD_CI_EVENT": {
+      const key = ciKey(action.payload);
+      if (state.ciEvents.some((c) => ciKey(c) === key)) return state;
       return {
         ...state,
         ciEvents: [...state.ciEvents, action.payload],
         iteration: action.payload.iteration,
       };
+    }
 
     case "ADD_TELEMETRY":
       return {

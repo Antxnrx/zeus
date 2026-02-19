@@ -14,7 +14,7 @@ BugType = Literal[
 ]
 
 FixStatus = Literal["applied", "failed", "rolled_back", "skipped"]
-CiStatus = Literal["pending", "running", "passed", "failed"]
+CiStatus = Literal["pending", "running", "passed", "failed", "no_ci"]
 RunStatus = Literal["queued", "running", "passed", "failed", "quarantined"]
 
 
@@ -105,6 +105,7 @@ class AgentState(TypedDict, total=False):
     ci_runs: list[CiRun]
     current_ci_status: CiStatus
     regression_detected: bool
+    ci_workflow_created: bool    # True after ci_workflow_creator pushes a workflow
 
     # ── Iteration control ─────────────────────────────
     iteration: int

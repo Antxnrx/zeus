@@ -91,12 +91,10 @@ async function processAgentRun(job: Job<AgentRunJobData>): Promise<void> {
     // eslint-disable-next-line no-console
     console.log(`[Worker] Agent accepted run ${run_id}`);
 
-    // ── Step 2: Bridge SSE stream to Redis pub/sub ─────────
-    // Start SSE listener in background
-    const sseAbort = new AbortController();
-    const ssePromise = bridgeSSE(redis, run_id, sseAbort.signal);
-
-    // ── Step 3: Poll agent status until terminal ───────────
+    // ── Step 2: Poll agent status until terminal ────────────
+    // Events are published directly by the agent to Redis pub/sub,
+    // and the gateway's RedisBridge subscribes to those channels.
+    // No SSE bridge needed — avoids duplicate event delivery.
     let attempts = 0;
     let terminal = false;
 
@@ -133,10 +131,6 @@ async function processAgentRun(job: Job<AgentRunJobData>): Promise<void> {
       }
     }
 
-    // Stop SSE bridge
-    sseAbort.abort();
-    await ssePromise.catch(() => {}); // swallow abort error
-
     if (!terminal) {
       // eslint-disable-next-line no-console
       console.warn(`[Worker] Run ${run_id} timed out after ${attempts} poll attempts`);
@@ -147,50 +141,6 @@ async function processAgentRun(job: Job<AgentRunJobData>): Promise<void> {
     console.log(`[Worker] Finished processing run ${run_id}`);
   } finally {
     await redis.quit();
-  }
-}
-
-/**
- * Bridge SSE thought events from agent to Redis pub/sub.
- * Gateway subscribes to these and forwards to Socket.io rooms.
- */
-async function bridgeSSE(redis: RedisClient, runId: string, signal: AbortSignal): Promise<void> {
-  try {
-    const resp = await fetch(`${workerConfig.agentBaseUrl}/agent/stream?run_id=${runId}`, {
-      signal,
-      headers: { Accept: "text/event-stream" },
-    });
-
-    if (!resp.ok || !resp.body) return;
-
-    const reader = resp.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-
-      let currentEvent = "";
-      for (const line of lines) {
-        if (line.startsWith("event: ")) {
-          currentEvent = line.slice(7).trim();
-        } else if (line.startsWith("data: ") && currentEvent) {
-          const data = line.slice(6).trim();
-          // Publish to Redis channel so gateway can bridge to Socket.io
-          await redis.publish(`run:event:${currentEvent}`, data);
-          currentEvent = "";
-        }
-      }
-    }
-  } catch (err) {
-    if (signal.aborted) return; // expected
-    // eslint-disable-next-line no-console
-    console.warn(`[Worker] SSE bridge error for ${runId}:`, err);
   }
 }
 

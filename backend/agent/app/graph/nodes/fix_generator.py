@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from ...config import OPENAI_API_KEY, OPENAI_MODEL, OPENAI_TEMPERATURE
+from ...llm import get_llm, has_llm_keys
 from ...db import insert_fix, insert_trace
 from ...events import emit_fix_applied, emit_thought
 from ..state import AgentState, FixRecord, TestFailure
@@ -129,18 +130,13 @@ async def _llm_generate_fix(
     language: str,
 ) -> tuple[str, str] | None:
     """Use LLM to generate a fix. Returns (fixed_code, explanation) or None."""
-    if not OPENAI_API_KEY:
-        logger.warning("No OPENAI_API_KEY — cannot generate LLM fix")
+    if not has_llm_keys():
+        logger.warning("No Groq API keys — cannot generate LLM fix")
         return None
 
-    from langchain_openai import ChatOpenAI
     from langchain_core.messages import HumanMessage, SystemMessage
 
-    llm = ChatOpenAI(
-        model=OPENAI_MODEL,
-        temperature=OPENAI_TEMPERATURE,
-        api_key=OPENAI_API_KEY,
-    )
+    llm = get_llm()
 
     # Show context around the failing line
     lines = file_content.splitlines()

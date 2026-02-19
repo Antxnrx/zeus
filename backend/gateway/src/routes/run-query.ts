@@ -45,7 +45,32 @@ runQueryRouter.get("/agent/status/:runId", async (req, res) => {
       progress_pct: 100
     });
   } catch {
-    // fall through to not-found
+    // fall through to DB lookup
+  }
+
+  // DB fallback — covers runs that completed/failed without writing results.json
+  try {
+    const pool = getPool();
+    const { rows } = await pool.query(
+      `SELECT run_id, status, total_iterations, total_fixes, total_failures,
+              final_score, base_score, speed_bonus, efficiency_penalty
+       FROM runs WHERE run_id = $1 LIMIT 1`,
+      [runId]
+    );
+    if (rows.length > 0) {
+      const row = rows[0];
+      const isTerminal = ["passed", "failed", "quarantined"].includes(row.status);
+      return res.status(200).json({
+        run_id: row.run_id,
+        status: row.status,
+        current_node: isTerminal ? "complete" : "running",
+        iteration: row.total_iterations ?? 0,
+        max_iterations: config.maxIterations,
+        progress_pct: isTerminal ? 100 : 50
+      });
+    }
+  } catch {
+    // DB unavailable — fall through to 404
   }
 
   return res.status(404).json(buildErrorEnvelope("NOT_FOUND", "Run not found"));

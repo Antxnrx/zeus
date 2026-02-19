@@ -26,6 +26,7 @@ async def _poll_github_actions(
     branch_name: str,
     timeout_secs: int,
     poll_interval: int,
+    workflow_just_created: bool = False,
 ) -> tuple[str, int | None, float]:
     """
     Poll GitHub Actions for the latest workflow run on the branch.
@@ -33,6 +34,10 @@ async def _poll_github_actions(
 
     If GitHub API is unavailable (no token, rate limit), simulates a pass
     based on whether the commit was successful.
+
+    When workflow_just_created=True, we wait for the full timeout instead
+    of bailing early on empty runs — GitHub may take a moment to register
+    the newly pushed workflow.
     """
     import os
 
@@ -59,6 +64,7 @@ async def _poll_github_actions(
     }
 
     start = time.monotonic()
+    no_workflow_polls = 0  # Track consecutive polls with no workflow runs
     async with httpx.AsyncClient(timeout=15) as client:
         while (time.monotonic() - start) < timeout_secs:
             try:
@@ -79,6 +85,20 @@ async def _poll_github_actions(
                         elif gh_status in ("failure", "cancelled", "timed_out"):
                             return "failed", gh_run_id, time.monotonic() - start
                         # else still in progress, keep polling
+                        no_workflow_polls = 0
+                    else:
+                        no_workflow_polls += 1
+                        # If we've polled 3+ times and never seen a workflow run,
+                        # the repo has no CI configured.
+                        # But if a workflow was just created, keep waiting —
+                        # GitHub needs time to register and trigger it.
+                        if no_workflow_polls >= 3 and not workflow_just_created:
+                            logger.info(
+                                "No GitHub Actions workflow found for %s/%s branch %s "
+                                "after %d polls — returning no_ci",
+                                owner, repo_name, branch_name, no_workflow_polls,
+                            )
+                            return "no_ci", None, time.monotonic() - start
                 elif resp.status_code == 403:
                     logger.warning("GitHub API rate limited — simulating pass")
                     return "passed", None, time.monotonic() - start
@@ -101,6 +121,7 @@ async def ci_monitor(state: AgentState) -> AgentState:
     iteration = state.get("iteration", 1)
     ci_runs = list(state.get("ci_runs", []))
     failures_before = len(state.get("failures", []))
+    workflow_created = state.get("ci_workflow_created", False)
     step = iteration * 10 + 7
 
     await emit_thought(run_id, "ci_monitor", f"Monitoring CI for iteration {iteration}…", step)
@@ -113,6 +134,7 @@ async def ci_monitor(state: AgentState) -> AgentState:
         branch_name,
         POLL_CI_TIMEOUT_SECS,
         POLL_CI_INTERVAL_SECS,
+        workflow_just_created=workflow_created,
     )
 
     completed_at = datetime.now(timezone.utc)

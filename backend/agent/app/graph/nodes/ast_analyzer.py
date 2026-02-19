@@ -15,6 +15,7 @@ from pathlib import Path
 from ...config import OPENAI_API_KEY, OPENAI_MODEL
 from ...db import insert_trace
 from ...events import emit_thought
+from ...llm import get_llm, has_llm_keys
 from ..state import AgentState, BugType, TestFailure
 
 logger = logging.getLogger("rift.node.ast_analyzer")
@@ -152,14 +153,13 @@ def _parse_jest_output(output: str, repo_dir: str) -> list[TestFailure]:
 
 async def _llm_classify_failures(output: str) -> list[TestFailure]:
     """Use LLM as fallback to extract and classify failures."""
-    if not OPENAI_API_KEY:
-        logger.warning("No OPENAI_API_KEY — cannot use LLM fallback")
+    if not has_llm_keys():
+        logger.warning("No Groq API keys — cannot use LLM fallback")
         return []
 
-    from langchain_openai import ChatOpenAI
     from langchain_core.messages import HumanMessage, SystemMessage
 
-    llm = ChatOpenAI(model=OPENAI_MODEL, temperature=0.0, api_key=OPENAI_API_KEY)
+    llm = get_llm(temperature=0.0)
 
     prompt = f"""Analyze this test output and extract each failure as JSON.
 For each failure return:
