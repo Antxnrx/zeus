@@ -7,19 +7,22 @@ WORKDIR /app
 # Copy workspace root files
 COPY package.json pnpm-workspace.yaml tsconfig.base.json ./
 
-# Copy workspace packages
+# Copy ALL workspace package.json files (pnpm needs them for resolution)
 COPY packages/contracts/package.json ./packages/contracts/package.json
 COPY packages/contracts/tsconfig.json ./packages/contracts/tsconfig.json
+COPY backend/gateway/package.json ./backend/gateway/package.json
+COPY backend/worker/package.json ./backend/worker/package.json
+
+# Install all deps first (layer cache)
+RUN pnpm install --frozen-lockfile || pnpm install
+
+# Copy source for contracts + gateway
 COPY packages/contracts/src ./packages/contracts/src
 COPY packages/contracts/schemas ./packages/contracts/schemas
-
-# Copy gateway package
-COPY backend/gateway/package.json ./backend/gateway/package.json
 COPY backend/gateway/tsconfig.json ./backend/gateway/tsconfig.json
 COPY backend/gateway/src ./backend/gateway/src
 
-# Install deps using pnpm and build
-RUN pnpm install --frozen-lockfile || pnpm install
+# Build
 RUN pnpm --filter @rift/contracts run build && pnpm --filter @rift/gateway run build
 
 # ── Runtime stage ───────────────────────────────────────
@@ -44,3 +47,16 @@ RUN mkdir -p /app/outputs
 EXPOSE 3000
 
 CMD ["node", "backend/gateway/dist/server.js"]
+
+# ── Test stage ──────────────────────────────────────────
+FROM builder AS test
+
+WORKDIR /app
+
+# Copy test files and vitest config into the builder image (has all devDeps)
+COPY backend/gateway/test ./backend/gateway/test
+COPY backend/gateway/vitest.config.ts ./backend/gateway/vitest.config.ts
+
+WORKDIR /app/backend/gateway
+
+CMD ["npx", "vitest", "run"]

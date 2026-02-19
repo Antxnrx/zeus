@@ -4,7 +4,7 @@
 create extension if not exists pgcrypto;
 
 create table if not exists runs (
-  run_id uuid primary key default gen_random_uuid(),
+  run_id text primary key,
   fingerprint text not null,
   repo_url text not null,
   team_name varchar(120) not null,
@@ -32,8 +32,8 @@ create index if not exists idx_runs_created_at on runs(created_at desc);
 create index if not exists idx_runs_fingerprint on runs(fingerprint);
 
 create table if not exists fixes (
-  fix_id uuid primary key default gen_random_uuid(),
-  run_id uuid not null references runs(run_id) on delete cascade,
+  fix_id text primary key default gen_random_uuid()::text,
+  run_id text not null references runs(run_id) on delete cascade,
   file_path text not null,
   bug_type text not null check (bug_type in ('LINTING','SYNTAX','LOGIC','TYPE_ERROR','IMPORT','INDENTATION')),
   line_number int not null,
@@ -60,8 +60,8 @@ create index if not exists idx_fixes_bug_status on fixes(bug_type, status);
 create index if not exists idx_fixes_kb_match_true on fixes(kb_match) where kb_match = true;
 
 create table if not exists ci_events (
-  event_id uuid primary key default gen_random_uuid(),
-  run_id uuid not null references runs(run_id) on delete cascade,
+  event_id text primary key default gen_random_uuid()::text,
+  run_id text not null references runs(run_id) on delete cascade,
   iteration int not null,
   github_run_id bigint,
   status text not null check (status in ('pending','running','passed','failed')),
@@ -79,23 +79,23 @@ create table if not exists ci_events (
 create index if not exists idx_ci_events_run_iter on ci_events(run_id, iteration);
 
 create table if not exists execution_traces (
-  trace_id uuid primary key default gen_random_uuid(),
-  run_id uuid not null references runs(run_id) on delete cascade,
+  trace_id text primary key default gen_random_uuid()::text,
+  run_id text not null references runs(run_id) on delete cascade,
   step_index int not null,
   agent_node varchar(60) not null,
   action_type varchar(60) not null,
   action_label text not null,
   payload jsonb,
   thought_text text,
-  related_fix_id uuid references fixes(fix_id) on delete set null,
-  related_ci_event_id uuid references ci_events(event_id) on delete set null,
+  related_fix_id text references fixes(fix_id) on delete set null,
+  related_ci_event_id text references ci_events(event_id) on delete set null,
   emitted_at timestamptz not null default now()
 );
 
 create index if not exists idx_traces_run_step on execution_traces(run_id, step_index);
 
 create table if not exists strategy_weights (
-  weight_id uuid primary key default gen_random_uuid(),
+  weight_id text primary key default gen_random_uuid()::text,
   bug_type text unique not null,
   strategy_rule_first double precision not null,
   strategy_llm_single double precision not null,
@@ -108,8 +108,8 @@ create table if not exists strategy_weights (
 );
 
 create table if not exists benchmark_scores (
-  bench_id uuid primary key default gen_random_uuid(),
-  run_id uuid not null references runs(run_id) on delete cascade,
+  bench_id text primary key default gen_random_uuid()::text,
+  run_id text not null references runs(run_id) on delete cascade,
   criterion varchar(80) not null,
   max_points int not null,
   predicted_score int not null,

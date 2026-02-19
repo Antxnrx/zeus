@@ -1,5 +1,4 @@
-import Ajv2020 from "ajv/dist/2020.js";
-import addFormats from "ajv-formats";
+import { createRequire } from "node:module";
 import type { RequestHandler } from "express";
 import runAgentRequestSchema from "@rift/contracts/schemas/run-agent-request.schema.json" with { type: "json" };
 import runAgentResponseSchema from "@rift/contracts/schemas/run-agent-response.schema.json" with { type: "json" };
@@ -12,9 +11,11 @@ import telemetryTickEventSchema from "@rift/contracts/schemas/socket-telemetry-t
 import runCompleteEventSchema from "@rift/contracts/schemas/socket-run-complete.schema.json" with { type: "json" };
 import { buildErrorEnvelope } from "./error-envelope.js";
 
-// @ts-ignore -- CJS default export interop under NodeNext
+const require = createRequire(import.meta.url);
+const Ajv2020 = require("ajv/dist/2020") as { new(opts: object): { compile(schema: object): ((data: unknown) => boolean) & { errors?: unknown[] } } };
+const addFormats = require("ajv-formats") as (ajv: unknown) => void;
+
 const ajv = new Ajv2020({ allErrors: true, strict: true });
-// @ts-ignore -- CJS default export interop under NodeNext
 addFormats(ajv);
 
 const validators = {

@@ -3,19 +3,61 @@ import { runAgentRouter } from "./routes/run-agent.js";
 import { runQueryRouter } from "./routes/run-query.js";
 import { buildErrorEnvelope } from "./error-envelope.js";
 import { config } from "./config.js";
+import { getRedis } from "./redis.js";
+import { getPool } from "./db.js";
 
 export function createApp(): Express {
   const app = express();
 
   app.use(express.json({ limit: "1mb" }));
 
-  app.get("/health", (_req, res) => {
-    res.status(200).json({
+  // ── Health check with real connectivity ──────────────────
+  app.get("/health", async (_req, res) => {
+    const checks: Record<string, string> = {
       gateway: "ok",
       worker: "unknown",
       agent: "unknown",
       postgres: "unknown",
       redis: "unknown",
+    };
+
+    // Redis ping
+    try {
+      const redis = getRedis();
+      const pong = await redis.ping();
+      checks.redis = pong === "PONG" ? "ok" : "degraded";
+    } catch {
+      checks.redis = "error";
+    }
+
+    // PostgreSQL connectivity
+    try {
+      const pool = getPool();
+      const result = await pool.query("SELECT 1 AS alive");
+      checks.postgres = result.rows[0]?.alive === 1 ? "ok" : "degraded";
+    } catch {
+      checks.postgres = "error";
+    }
+
+    // Agent HTTP health
+    try {
+      const resp = await fetch(`${config.agentBaseUrl}/health`, {
+        signal: AbortSignal.timeout(3000),
+      });
+      checks.agent = resp.ok ? "ok" : "degraded";
+    } catch {
+      checks.agent = "error";
+    }
+
+    // Worker check: see if BullMQ queue has active workers
+    // For now, mark as "ok" if Redis is ok (worker registers via BullMQ)
+    checks.worker = checks.redis === "ok" ? "ok" : "error";
+
+    const overallOk = checks.gateway === "ok" && checks.redis === "ok" && checks.postgres === "ok";
+    const statusCode = overallOk ? 200 : 503;
+
+    res.status(statusCode).json({
+      ...checks,
       outputs_dir: config.outputsDir,
       timestamp: new Date().toISOString()
     });

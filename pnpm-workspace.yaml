@@ -1,3 +1,5 @@
 packages:
   - "backend/gateway"
+  - "backend/worker"
   - "packages/contracts"
+  - "frontend"
