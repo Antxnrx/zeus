@@ -40,7 +40,9 @@ RUN mkdir -p /tmp/repos /app/outputs
 
 EXPOSE 8001
 
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001"]
+ENV PORT=8001
+
+CMD ["sh", "-c", "python -m uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
 
 # ── Test stage ──────────────────────────────────────────
 FROM base AS test

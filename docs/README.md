@@ -15,6 +15,7 @@ This repository contains a production-style autonomous CI/CD healing system and 
 - Database Doc: `db-architecture.txt`
 - Source of Truth: `SOURCE_OF_TRUTH.md`
 - Copilot Build Guide: `COPILOT_BUILD_GUIDE.md`
+- Railway Deploy Guide: `RAILWAY_DEPLOYMENT.md`
 
 ## 2. Project Objective
 

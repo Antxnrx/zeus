@@ -27,12 +27,20 @@ RUN cd frontend && pnpm run build
 # ── Stage 2: Serve with nginx ──────────────────────────
 FROM nginx:alpine AS production
 
+# Install envsubst for runtime nginx template rendering
+RUN apk add --no-cache gettext
+
 # Copy built assets
 COPY --from=builder /app/frontend/dist /usr/share/nginx/html
 
-# Copy nginx config (SPA routing + API/WS proxy)
-COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
+# Runtime-configurable nginx template and entrypoint script
+COPY frontend/nginx.conf.template /etc/nginx/templates/default.conf.template
+COPY frontend/docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+
+ENV PORT=80
+ENV GATEWAY_UPSTREAM=http://gateway:3000
 
 EXPOSE 80
 
-CMD ["nginx", "-g", "daemon off;"]
+CMD ["/docker-entrypoint.sh"]
