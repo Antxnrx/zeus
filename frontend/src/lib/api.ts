@@ -11,7 +11,8 @@ import type {
   RunStatusResponse,
 } from "@/types";
 
-const BASE = "/api";
+const RAW_API_BASE = import.meta.env.VITE_API_BASE_URL ?? "/api";
+const BASE = RAW_API_BASE.replace(/\/+$/, "");
 
 // ── Helpers ─────────────────────────────────────────────────
 

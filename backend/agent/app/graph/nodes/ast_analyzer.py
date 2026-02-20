@@ -20,6 +20,45 @@ from ..state import AgentState, BugType, TestFailure
 
 logger = logging.getLogger("rift.node.ast_analyzer")
 
+# ── Canonical bug types (must match DB CHECK constraint) ────
+_VALID_BUG_TYPES = {"LINTING", "SYNTAX", "LOGIC", "TYPE_ERROR", "IMPORT", "INDENTATION"}
+
+# Map common LLM-invented types back to the 6 canonical ones
+_BUG_TYPE_ALIASES: dict[str, BugType] = {
+    "CONFIG": "SYNTAX",
+    "CONFIGURATION": "SYNTAX",
+    "RUNTIME": "LOGIC",
+    "RUNTIME_ERROR": "LOGIC",
+    "BUILD": "SYNTAX",
+    "BUILD_ERROR": "SYNTAX",
+    "COMPILE": "SYNTAX",
+    "COMPILE_ERROR": "SYNTAX",
+    "DEPENDENCY": "IMPORT",
+    "MISSING_DEPENDENCY": "IMPORT",
+    "MISSING_MODULE": "IMPORT",
+    "MISSING_IMPORT": "IMPORT",
+    "STYLE": "LINTING",
+    "FORMAT": "LINTING",
+    "FORMATTING": "LINTING",
+    "ASSERTION": "LOGIC",
+    "TEST_FAILURE": "LOGIC",
+    "NULL_REFERENCE": "TYPE_ERROR",
+    "WHITESPACE": "INDENTATION",
+}
+
+
+def _sanitize_bug_type(raw: str | None) -> BugType:
+    """Ensure bug_type is one of the 6 canonical values."""
+    if not raw:
+        return "LOGIC"
+    upper = raw.strip().upper().replace(" ", "_")
+    if upper in _VALID_BUG_TYPES:
+        return upper  # type: ignore[return-value]
+    if upper in _BUG_TYPE_ALIASES:
+        return _BUG_TYPE_ALIASES[upper]
+    return "LOGIC"  # safe default
+
+
 # ── Rule-based classifiers ──────────────────────────────────
 
 _PYTEST_FAILURE_RE = re.compile(
@@ -466,13 +505,142 @@ Test output:
                 test_name=str(item.get("test_name") or "unknown"),
                 line_number=int(item.get("line_number") or 1),
                 error_message=str(item.get("error_message") or "unknown error"),
-                bug_type=item.get("bug_type") or "LOGIC",
+                bug_type=_sanitize_bug_type(item.get("bug_type")),
                 raw_output="",
             )
             for item in items
         ]
     except (json.JSONDecodeError, TypeError):
         logger.error("LLM returned invalid JSON for failure classification")
+        return []
+
+
+def _guess_config_file(repo_dir: str, framework: str) -> str:
+    """Guess the most likely config file to fix based on the framework."""
+    p = Path(repo_dir)
+    _CANDIDATES = [
+        "package.json",
+        "pyproject.toml",
+        "setup.py",
+        "pom.xml",
+        "build.gradle",
+        "Cargo.toml",
+        "go.mod",
+        "Gemfile",
+        "composer.json",
+        "mix.exs",
+        "pubspec.yaml",
+    ]
+    for c in _CANDIDATES:
+        if (p / c).exists():
+            return c
+    return "package.json"  # fallback
+
+
+async def _llm_analyze_repo_failures(
+    test_output: str, repo_dir: str, framework: str,
+) -> list[TestFailure]:
+    """Use LLM to analyze the repo itself when tests couldn't even run.
+
+    Instead of parsing test output (which is just a config error), this
+    scans the repo and asks the LLM to identify what files need fixing.
+    """
+    if not has_llm_keys():
+        return []
+
+    import json as _json
+    from langchain_core.messages import HumanMessage, SystemMessage
+
+    llm = get_llm(temperature=0.0)
+
+    # Gather repo context
+    p = Path(repo_dir)
+    file_list: list[str] = []
+    for f in sorted(p.rglob("*")):
+        rel = str(f.relative_to(p))
+        if f.is_file() and not any(skip in rel for skip in [
+            "node_modules", ".git", "__pycache__", ".tox", "venv",
+            "dist/", "build/", ".next",
+        ]):
+            file_list.append(rel)
+
+    # Read key config files
+    config_contents: dict[str, str] = {}
+    for fname in ["package.json", "pyproject.toml", "pom.xml",
+                   "build.gradle", "Cargo.toml", "go.mod", "Gemfile",
+                   "composer.json", "tsconfig.json"]:
+        cfg = p / fname
+        if cfg.exists():
+            try:
+                config_contents[fname] = cfg.read_text("utf-8")[:2000]
+            except Exception:
+                pass
+
+    # Also read a few source files to understand the project
+    source_snippets: dict[str, str] = {}
+    for f in file_list[:15]:
+        fp = p / f
+        if fp.suffix in (".js", ".ts", ".py", ".java", ".cs", ".go", ".rb", ".php", ".rs"):
+            try:
+                source_snippets[f] = fp.read_text("utf-8")[:1500]
+            except Exception:
+                pass
+
+    prompt = f"""The test runner for this {framework} project failed with a config error:
+
+**Test output**: {test_output.strip()}
+
+**File listing**: {chr(10).join(file_list[:60])}
+
+**Config files**:
+{chr(10).join(f'--- {k} ---{chr(10)}{v}' for k, v in config_contents.items())}
+
+**Source files**:
+{chr(10).join(f'--- {k} ---{chr(10)}{v}' for k, v in list(source_snippets.items())[:5])}
+
+Analyze the project and identify REAL bugs or misconfigurations in actual source/config files.
+For each issue return:
+- file_path: the actual file that needs to be fixed (must be a real file from the listing)
+- test_name: a descriptive name for the issue
+- line_number: approximate line number
+- error_message: what's wrong and how to fix it
+- bug_type: one of LINTING, SYNTAX, LOGIC, TYPE_ERROR, IMPORT, INDENTATION
+
+Return ONLY a JSON array. No markdown, no explanation.
+If the project has real bugs in source files, identify those.
+If the issue is purely a missing test script, return a single item pointing at the config file (e.g. package.json)."""
+
+    try:
+        resp = await llm.ainvoke([
+            SystemMessage(content="You are a senior code reviewer. Identify real bugs in real files. Return valid JSON only."),
+            HumanMessage(content=prompt),
+        ])
+
+        raw = str(resp.content).strip()
+        # Strip markdown fences
+        if raw.startswith("```"):
+            lines = raw.splitlines()
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].strip() == "```":
+                lines = lines[:-1]
+            raw = "\n".join(lines)
+
+        items = _json.loads(raw)
+        return [
+            TestFailure(
+                file_path=str(item.get("file_path") or _guess_config_file(repo_dir, framework)),
+                test_name=str(item.get("test_name") or "config_issue"),
+                line_number=int(item.get("line_number") or 1),
+                error_message=str(item.get("error_message") or "Configuration error"),
+                bug_type=_sanitize_bug_type(item.get("bug_type")),
+                raw_output=test_output[:500],
+            )
+            for item in items
+            if isinstance(item, dict)
+        ]
+    except Exception:
+        logger.exception("LLM repo analysis failed")
         return []
 
 
@@ -499,35 +667,76 @@ async def ast_analyzer(state: AgentState) -> AgentState:
             "current_node": "ast_analyzer",
         }
 
-    # Rule-based parsing — dispatch by framework
-    _JEST_LIKE = {"jest", "vitest", "ava", "jasmine", "hardhat", "truffle"}
-    _DOTNET_LIKE = {"dotnet-test"}
-    _GO_LIKE = {"go-test"}
-    _RUST_LIKE = {"cargo-test"}
-    _PYTEST_LIKE = {"pytest"}
+    # ── Early detection of config / env-level errors (not real test failures) ──
+    # These are cases where the test runner itself couldn't run, not
+    # where tests ran and found bugs.  Send them straight to LLM with
+    # repo context so it can identify the *actual* source file to fix.
+    _CONFIG_ERROR_MARKERS = [
+        "no test specified",
+        "Error: no test specified",
+        "missing script: test",
+        "command not found",
+        "ERROR: Test command not found",
+        "Test execution timed out",
+        "npm ERR! missing script",
+        "Cannot find module",
+        "Could not locate a valid entry",
+    ]
+    output_lower = test_output.lower()
+    is_config_error = (
+        len(test_output.strip()) < 300
+        and any(marker.lower() in output_lower for marker in _CONFIG_ERROR_MARKERS)
+    )
 
-    if framework in _JEST_LIKE:
-        failures = _parse_jest_output(test_output, repo_dir)
-    elif framework in _DOTNET_LIKE:
-        failures = _parse_dotnet_output(test_output, repo_dir)
-    elif framework in _GO_LIKE:
-        failures = _parse_go_output(test_output, repo_dir)
-    elif framework in _RUST_LIKE:
-        failures = _parse_rust_output(test_output, repo_dir)
-    elif framework in _PYTEST_LIKE:
-        failures = _parse_pytest_output(test_output, repo_dir)
-    else:
-        # Generic parser works for Java/Ruby/PHP/Elixir/Haskell/etc.
-        failures = _parse_generic_output(test_output, repo_dir)
-
-    # LLM fallback if rule-based found nothing
-    if not failures and test_exit_code != 0:
+    if is_config_error:
         await emit_thought(
             run_id, "ast_analyzer",
-            "Rule-based parsing found no structured failures — trying LLM fallback…",
+            "Detected config/environment error (not a test failure) — using LLM to analyze repo…",
             step + 1,
         )
-        failures = await _llm_classify_failures(test_output)
+        failures = await _llm_analyze_repo_failures(test_output, repo_dir, framework)
+        if not failures:
+            # Produce a single meaningful failure pointing at likely config file
+            config_file = _guess_config_file(repo_dir, framework)
+            failures = [
+                TestFailure(
+                    file_path=config_file,
+                    test_name="test_configuration",
+                    line_number=1,
+                    error_message=test_output.strip()[:500],
+                    bug_type="SYNTAX",
+                    raw_output=test_output[:1000],
+                )
+            ]
+    else:
+        # ── Normal flow: rule-based parsing by framework ──
+        _JEST_LIKE = {"jest", "vitest", "ava", "jasmine", "hardhat", "truffle"}
+        _DOTNET_LIKE = {"dotnet-test"}
+        _GO_LIKE = {"go-test"}
+        _RUST_LIKE = {"cargo-test"}
+        _PYTEST_LIKE = {"pytest"}
+
+        if framework in _JEST_LIKE:
+            failures = _parse_jest_output(test_output, repo_dir)
+        elif framework in _DOTNET_LIKE:
+            failures = _parse_dotnet_output(test_output, repo_dir)
+        elif framework in _GO_LIKE:
+            failures = _parse_go_output(test_output, repo_dir)
+        elif framework in _RUST_LIKE:
+            failures = _parse_rust_output(test_output, repo_dir)
+        elif framework in _PYTEST_LIKE:
+            failures = _parse_pytest_output(test_output, repo_dir)
+        else:
+            failures = _parse_generic_output(test_output, repo_dir)
+
+        # LLM fallback if rule-based found nothing
+        if not failures and test_exit_code != 0:
+            await emit_thought(
+                run_id, "ast_analyzer",
+                "Rule-based parsing found no structured failures — trying LLM fallback…",
+                step + 1,
+            )
+            failures = await _llm_classify_failures(test_output)
 
     # Ensure we cover all 6 required bug types for demo if we have failures
     seen_types = {f.bug_type for f in failures}

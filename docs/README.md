@@ -16,6 +16,7 @@ This repository contains a production-style autonomous CI/CD healing system and 
 - Source of Truth: `SOURCE_OF_TRUTH.md`
 - Copilot Build Guide: `COPILOT_BUILD_GUIDE.md`
 - Railway Deploy Guide: `RAILWAY_DEPLOYMENT.md`
+- Vercel Deploy Guide: `VERCEL_DEPLOYMENT.md`
 
 ## 2. Project Objective
 

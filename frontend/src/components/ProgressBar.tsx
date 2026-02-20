@@ -20,9 +20,9 @@ export default function ProgressBar({ value, className, showLabel = true }: Prog
           <span>{Math.round(clamped)}%</span>
         </div>
       )}
-      <div className="h-2 rounded-full bg-[var(--color-surface-2)] overflow-hidden">
+      <div className="h-2 bg-[var(--color-surface-2)] overflow-hidden border border-black/10">
         <div
-          className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-blue-500 transition-all duration-500 ease-out"
+          className="h-full bg-gradient-to-r from-slate-900 to-slate-700 transition-all duration-500 ease-out"
           style={{ width: `${clamped}%` }}
         />
       </div>

@@ -4,11 +4,13 @@
 import { io, type Socket } from "socket.io-client";
 
 let socket: Socket | null = null;
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL ?? window.location.origin;
+const SOCKET_PATH = import.meta.env.VITE_SOCKET_PATH ?? "/socket.io";
 
 export function getSocket(): Socket {
   if (!socket) {
-    socket = io({
-      path: "/socket.io",
+    socket = io(SOCKET_URL, {
+      path: SOCKET_PATH,
       transports: ["websocket", "polling"],
       autoConnect: true,
       reconnection: true,

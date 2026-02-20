@@ -118,6 +118,11 @@ async def insert_fix(
     model_used: str = "rule-based",
 ) -> str:
     """Insert a fix row and return the fix_id."""
+    # Sanitize bug_type to match DB CHECK constraint
+    _VALID = {"LINTING", "SYNTAX", "LOGIC", "TYPE_ERROR", "IMPORT", "INDENTATION"}
+    if bug_type not in _VALID:
+        bug_type = "LOGIC"
+
     fix_id = str(uuid4())
     pool = await get_pool()
     await pool.execute(

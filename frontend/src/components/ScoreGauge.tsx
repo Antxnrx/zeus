@@ -14,7 +14,7 @@ export default function ScoreGauge({ total, maxScore = 100, size = 140 }: ScoreG
   const offset = circumference * (1 - pct);
 
   const color =
-    pct >= 0.75 ? "stroke-green-400" : pct >= 0.5 ? "stroke-yellow-400" : "stroke-red-400";
+    pct >= 0.75 ? "stroke-emerald-600" : pct >= 0.5 ? "stroke-amber-600" : "stroke-red-600";
 
   return (
     <div className="relative inline-flex items-center justify-center" style={{ width: size, height: size }}>
@@ -25,7 +25,7 @@ export default function ScoreGauge({ total, maxScore = 100, size = 140 }: ScoreG
           r={radius}
           fill="none"
           stroke="currentColor"
-          className="text-[var(--color-surface-2)]"
+          className="text-zinc-200"
           strokeWidth={8}
         />
         <circle

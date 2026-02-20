@@ -2,7 +2,6 @@
  * §11.4 — Fixes Applied Table
  * file, bug_type, line, commit_message, status
  * ────────────────────────────────────────────────────────── */
-import { Wrench, FileCode } from "lucide-react";
 import { useRunContext } from "@/context/RunContext";
 import Card from "@/components/Card";
 import StatusBadge from "@/components/StatusBadge";
@@ -18,7 +17,7 @@ export default function FixesAppliedTable() {
   const hasData = resultFixes.length > 0 || liveFixes.length > 0;
 
   return (
-    <Card title="Fixes Applied" icon={<Wrench className="h-4 w-4 text-orange-400" />}>
+    <Card title="Fixes Applied">
       {!hasData ? (
         <div className="flex items-center justify-center h-32 text-sm text-[var(--color-text-muted)]">
           No fixes applied yet.
@@ -40,13 +39,10 @@ export default function FixesAppliedTable() {
               {resultFixes.map((fix, i) => (
                 <tr key={`r-${i}`} className="hover:bg-[var(--color-surface-2)] transition-colors">
                   <td className="py-2 pr-3">
-                    <div className="flex items-center gap-1.5">
-                      <FileCode className="h-3.5 w-3.5 text-[var(--color-text-muted)] flex-shrink-0" />
-                      <span className="font-mono text-xs truncate max-w-[200px]">{fix.file}</span>
-                    </div>
+                    <span className="font-mono text-xs truncate max-w-[200px] inline-block">{fix.file}</span>
                   </td>
                   <td className="py-2 pr-3">
-                    <span className="rounded bg-[var(--color-surface-2)] px-1.5 py-0.5 text-xs font-mono">
+                    <span className="bg-[var(--color-surface-2)] border border-black/10 px-1.5 py-0.5 text-xs font-mono">
                       {fix.bug_type}
                     </span>
                   </td>
@@ -63,13 +59,10 @@ export default function FixesAppliedTable() {
                 liveFixes.map((fix, i) => (
                   <tr key={`l-${i}`} className="hover:bg-[var(--color-surface-2)] transition-colors">
                     <td className="py-2 pr-3">
-                      <div className="flex items-center gap-1.5">
-                        <FileCode className="h-3.5 w-3.5 text-[var(--color-text-muted)] flex-shrink-0" />
-                        <span className="font-mono text-xs truncate max-w-[200px]">{fix.file}</span>
-                      </div>
+                      <span className="font-mono text-xs truncate max-w-[200px] inline-block">{fix.file}</span>
                     </td>
                     <td className="py-2 pr-3">
-                      <span className="rounded bg-[var(--color-surface-2)] px-1.5 py-0.5 text-xs font-mono">
+                      <span className="bg-[var(--color-surface-2)] border border-black/10 px-1.5 py-0.5 text-xs font-mono">
                         {fix.bug_type}
                       </span>
                     </td>
@@ -97,13 +90,13 @@ export default function FixesAppliedTable() {
               </span>
               <span>
                 Fixed:{" "}
-                <strong className="text-green-400">
+                <strong className="text-emerald-700">
                   {resultFixes.filter((f) => f.status === "FIXED").length}
                 </strong>
               </span>
               <span>
                 Failed:{" "}
-                <strong className="text-red-400">
+                <strong className="text-red-700">
                   {resultFixes.filter((f) => f.status === "FAILED").length}
                 </strong>
               </span>

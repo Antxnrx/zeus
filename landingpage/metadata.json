@@ -1,0 +1,5 @@
+{
+  "name": "Zeus CI/CD Assistant",
+  "description": "Autonomous CI/CD Assistant UI inspired by Render.com",
+  "requestFramePermissions": []
+}

@@ -3,7 +3,6 @@
  * ────────────────────────────────────────────────────────── */
 import { useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { Brain } from "lucide-react";
 import { useRunContext } from "@/context/RunContext";
 import { useSocket } from "@/hooks/useSocket";
 import { usePolling } from "@/hooks/usePolling";
@@ -51,7 +50,6 @@ export default function DashboardPage() {
         <Card
           title="Agent Thoughts"
           subtitle="Real-time reasoning stream"
-          icon={<Brain className="h-4 w-4 text-purple-400" />}
         >
           <ThoughtStream thoughts={state.thoughts} maxHeight="400px" />
         </Card>

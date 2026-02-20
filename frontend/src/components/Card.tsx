@@ -26,16 +26,16 @@ export default function Card({ title, subtitle, icon, children, className, glow 
   return (
     <div
       className={cn(
-        "rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5",
+        "border border-black/10 bg-white/95 p-5 shadow-[0_12px_30px_rgba(10,10,10,0.06)]",
         glowCls,
         className,
       )}
     >
       {(title || icon) && (
-        <div className="flex items-center gap-2 mb-4">
+        <div className="flex items-center gap-2 mb-4 border-b border-black/10 pb-3">
           {icon}
           <div>
-            {title && <h3 className="text-sm font-semibold">{title}</h3>}
+            {title && <h3 className="text-sm font-semibold tracking-tight">{title}</h3>}
             {subtitle && (
               <p className="text-xs text-[var(--color-text-muted)]">{subtitle}</p>
             )}

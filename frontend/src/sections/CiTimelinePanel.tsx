@@ -2,22 +2,21 @@
  * §11.5 — CI/CD Status Timeline
  * iteration, status, timestamp, regression indicators
  * ────────────────────────────────────────────────────────── */
-import { Timer, AlertTriangle, CheckCircle, XCircle, Loader2, Clock } from "lucide-react";
 import { useRunContext } from "@/context/RunContext";
 import Card from "@/components/Card";
 import StatusBadge from "@/components/StatusBadge";
 import type { CiUpdateEvent, ResultCiRow } from "@/types";
 
-function CiIcon({ status }: { status: string }) {
+function ciStatusLabel(status: string) {
   switch (status) {
     case "passed":
-      return <CheckCircle className="h-4 w-4 text-green-400" />;
+      return "PASS";
     case "failed":
-      return <XCircle className="h-4 w-4 text-red-400" />;
+      return "FAIL";
     case "running":
-      return <Loader2 className="h-4 w-4 text-blue-400 animate-spin" />;
+      return "RUN";
     default:
-      return <Clock className="h-4 w-4 text-gray-400" />;
+      return "PEND";
   }
 }
 
@@ -31,7 +30,7 @@ export default function CiTimelinePanel() {
   const items = resultCi.length > 0 ? resultCi : liveCi;
 
   return (
-    <Card title="CI/CD Timeline" icon={<Timer className="h-4 w-4 text-cyan-400" />}>
+    <Card title="CI/CD Timeline">
       {items.length === 0 ? (
         <div className="flex items-center justify-center h-32 text-sm text-[var(--color-text-muted)]">
           No CI events yet.
@@ -47,8 +46,8 @@ export default function CiTimelinePanel() {
               <div key={`ci-${item.iteration}-${i}`} className="flex items-stretch gap-3">
                 {/* Timeline connector */}
                 <div className="flex flex-col items-center w-6">
-                  <div className="flex-shrink-0">
-                    <CiIcon status={item.status} />
+                  <div className="flex-shrink-0 text-[9px] font-mono text-[var(--color-text-muted)] border border-black/10 px-1 py-0.5 bg-white">
+                    {ciStatusLabel(item.status)}
                   </div>
                   {!isLast && (
                     <div className="flex-1 w-px bg-[var(--color-border)] my-1" />
@@ -61,8 +60,7 @@ export default function CiTimelinePanel() {
                     <span className="text-sm font-medium">Iteration {item.iteration}</span>
                     <StatusBadge status={item.status} />
                     {regression && (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-orange-500/15 px-2 py-0.5 text-[10px] font-medium text-orange-400">
-                        <AlertTriangle className="h-3 w-3" />
+                      <span className="inline-flex items-center gap-1 border border-orange-300 bg-orange-100 px-2 py-0.5 text-[10px] font-medium text-orange-700">
                         Regression
                       </span>
                     )}

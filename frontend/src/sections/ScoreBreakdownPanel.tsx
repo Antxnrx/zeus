@@ -2,7 +2,6 @@
  * §11.3 — Score Breakdown Panel
  * base, speed_bonus, efficiency_penalty, total (visual)
  * ────────────────────────────────────────────────────────── */
-import { Trophy, TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { useRunContext } from "@/context/RunContext";
 import Card from "@/components/Card";
 import ScoreGauge from "@/components/ScoreGauge";
@@ -13,7 +12,7 @@ export default function ScoreBreakdownPanel() {
 
   if (!score) {
     return (
-      <Card title="Score Breakdown" icon={<Trophy className="h-4 w-4 text-yellow-400" />}>
+      <Card title="Score Breakdown">
         <div className="flex items-center justify-center h-40 text-sm text-[var(--color-text-muted)]">
           Score will appear when the run completes.
         </div>
@@ -25,27 +24,24 @@ export default function ScoreBreakdownPanel() {
     {
       label: "Base Score",
       value: score.base,
-      icon: <Minus className="h-3.5 w-3.5 text-blue-400" />,
-      color: "text-blue-400",
+      tone: "text-zinc-700 bg-zinc-100 border-zinc-300",
     },
     {
       label: "Speed Bonus",
       value: score.speed_bonus,
-      icon: <TrendingUp className="h-3.5 w-3.5 text-green-400" />,
-      color: "text-green-400",
+      tone: "text-emerald-700 bg-emerald-100 border-emerald-300",
       prefix: "+",
     },
     {
       label: "Efficiency Penalty",
       value: score.efficiency_penalty,
-      icon: <TrendingDown className="h-3.5 w-3.5 text-red-400" />,
-      color: "text-red-400",
+      tone: "text-red-700 bg-red-100 border-red-300",
       prefix: score.efficiency_penalty <= 0 ? "" : "-",
     },
   ];
 
   return (
-    <Card title="Score Breakdown" icon={<Trophy className="h-4 w-4 text-yellow-400" />}>
+    <Card title="Score Breakdown">
       <div className="flex items-center gap-6">
         {/* Gauge */}
         <ScoreGauge total={score.total} />
@@ -55,10 +51,11 @@ export default function ScoreBreakdownPanel() {
           {rows.map((r) => (
             <div key={r.label} className="flex items-center justify-between text-sm">
               <div className="flex items-center gap-2">
-                {r.icon}
-                <span className="text-[var(--color-text-muted)]">{r.label}</span>
+                <span className={`text-[10px] font-mono uppercase px-1.5 py-0.5 border ${r.tone}`}>
+                  {r.label}
+                </span>
               </div>
-              <span className={`font-mono font-semibold ${r.color}`}>
+              <span className="font-mono font-semibold">
                 {r.prefix ?? ""}
                 {r.value.toFixed(1)}
               </span>

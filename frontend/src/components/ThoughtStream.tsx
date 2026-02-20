@@ -2,17 +2,16 @@
  * ThoughtStream — scrollable list of thought events
  * ────────────────────────────────────────────────────────── */
 import { useEffect, useRef } from "react";
-import { Brain, GitBranch, Bug, TestTube, CheckCircle, AlertTriangle, Terminal } from "lucide-react";
 import type { ThoughtEvent } from "@/types";
 
-const nodeIcons: Record<string, React.ReactNode> = {
-  repo_scanner: <GitBranch className="h-3.5 w-3.5 text-blue-400" />,
-  test_runner:  <TestTube className="h-3.5 w-3.5 text-yellow-400" />,
-  ast_analyzer: <Brain className="h-3.5 w-3.5 text-purple-400" />,
-  fix_generator:<Bug className="h-3.5 w-3.5 text-orange-400" />,
-  commit_push:  <CheckCircle className="h-3.5 w-3.5 text-green-400" />,
-  ci_monitor:   <AlertTriangle className="h-3.5 w-3.5 text-cyan-400" />,
-  scorer:       <Terminal className="h-3.5 w-3.5 text-pink-400" />,
+const nodeTone: Record<string, string> = {
+  repo_scanner: "bg-zinc-100 text-zinc-700 border-zinc-300",
+  test_runner: "bg-amber-100 text-amber-700 border-amber-300",
+  ast_analyzer: "bg-zinc-100 text-zinc-700 border-zinc-300",
+  fix_generator: "bg-orange-100 text-orange-700 border-orange-300",
+  commit_push: "bg-emerald-100 text-emerald-700 border-emerald-300",
+  ci_monitor: "bg-zinc-100 text-zinc-700 border-zinc-300",
+  scorer: "bg-zinc-100 text-zinc-700 border-zinc-300",
 };
 
 interface ThoughtStreamProps {
@@ -40,14 +39,15 @@ export default function ThoughtStream({ thoughts, maxHeight = "320px" }: Thought
       {thoughts.map((t, i) => (
         <div
           key={`${t.step_index}-${i}`}
-          className="flex items-start gap-2 px-3 py-1.5 rounded-md hover:bg-[var(--color-surface-2)] transition-colors"
+          className="border border-black/10 px-3 py-2 bg-white hover:bg-[var(--color-surface-2)] transition-colors"
         >
-          <div className="mt-0.5 flex-shrink-0">
-            {nodeIcons[t.node] ?? <Terminal className="h-3.5 w-3.5 text-gray-400" />}
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 text-[10px] text-[var(--color-text-muted)]">
-              <span className="font-mono uppercase">{t.node}</span>
+          <div className="min-w-0 flex-1 space-y-1">
+            <div className="flex items-center gap-2 text-[10px] text-[var(--color-text-muted)] flex-wrap">
+              <span
+                className={`font-mono uppercase px-1.5 py-0.5 border ${nodeTone[t.node] ?? "bg-zinc-100 text-zinc-700 border-zinc-300"}`}
+              >
+                {t.node}
+              </span>
               <span>·</span>
               <span>step {t.step_index}</span>
               <span>·</span>

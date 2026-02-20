@@ -2,13 +2,6 @@
  * §11.2 — Run Summary Card
  * run_id, status, branch, team, timing, progress
  * ────────────────────────────────────────────────────────── */
-import {
-  Clock,
-  GitBranch,
-  Hash,
-  Users,
-  Activity,
-} from "lucide-react";
 import { useRunContext } from "@/context/RunContext";
 import Card from "@/components/Card";
 import StatusBadge from "@/components/StatusBadge";
@@ -27,15 +20,14 @@ export default function RunSummaryCard() {
   return (
     <Card
       title="Run Summary"
-      icon={<Activity className="h-4 w-4 text-[var(--color-accent)]" />}
       glow={isRunning ? "running" : status === "passed" ? "passed" : status === "failed" ? "failed" : null}
     >
       <div className="space-y-4">
         {/* Top row: Run ID + Status */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-sm">
-            <Hash className="h-3.5 w-3.5 text-[var(--color-text-muted)]" />
-            <span className="font-mono text-xs text-[var(--color-text-muted)]">{runId ?? "—"}</span>
+            <span className="text-xs text-[var(--color-text-muted)]">Run ID</span>
+            <span className="font-mono text-xs text-[var(--color-text)] border border-black/10 px-2 py-0.5">{runId ?? "—"}</span>
           </div>
           <StatusBadge status={status} pulse={isRunning} />
         </div>
@@ -44,18 +36,18 @@ export default function RunSummaryCard() {
         <div className="grid grid-cols-2 gap-3 text-sm">
           {branchName && (
             <div className="flex items-center gap-2">
-              <GitBranch className="h-3.5 w-3.5 text-[var(--color-text-muted)]" />
+              <span className="text-[10px] uppercase font-mono text-[var(--color-text-muted)]">Branch</span>
               <span className="truncate text-xs">{branchName}</span>
             </div>
           )}
           {teamName && (
             <div className="flex items-center gap-2">
-              <Users className="h-3.5 w-3.5 text-[var(--color-text-muted)]" />
+              <span className="text-[10px] uppercase font-mono text-[var(--color-text-muted)]">Team</span>
               <span className="truncate text-xs">{teamName}</span>
             </div>
           )}
           <div className="flex items-center gap-2">
-            <Activity className="h-3.5 w-3.5 text-[var(--color-text-muted)]" />
+            <span className="text-[10px] uppercase font-mono text-[var(--color-text-muted)]">Step</span>
             <span className="text-xs">
               Iter {iteration}/{maxIterations}
               {currentNode ? ` · ${currentNode}` : ""}
@@ -63,7 +55,7 @@ export default function RunSummaryCard() {
           </div>
           {totalTime != null && (
             <div className="flex items-center gap-2">
-              <Clock className="h-3.5 w-3.5 text-[var(--color-text-muted)]" />
+              <span className="text-[10px] uppercase font-mono text-[var(--color-text-muted)]">Total</span>
               <span className="text-xs">{totalTime.toFixed(1)}s</span>
             </div>
           )}

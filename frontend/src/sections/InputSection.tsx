@@ -4,7 +4,6 @@
  * ────────────────────────────────────────────────────────── */
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { Rocket, Loader2 } from "lucide-react";
 import { startRun, ApiError } from "@/lib/api";
 import { useRunContext } from "@/context/RunContext";
 import Card from "@/components/Card";
@@ -58,7 +57,7 @@ export default function InputSection() {
 
   return (
     <div className="flex items-center justify-center min-h-[calc(100vh-7rem)]">
-      <Card className="w-full max-w-lg" title="Launch Healing Run" icon={<Rocket className="h-5 w-5 text-[var(--color-accent)]" />}>
+      <Card className="w-full max-w-lg" title="Launch Healing Run">
         <form onSubmit={handleSubmit} className="space-y-5">
           {/* Repo URL */}
           <div>
@@ -72,7 +71,7 @@ export default function InputSection() {
               placeholder="https://github.com/org/repo"
               value={repoUrl}
               onChange={(e) => setRepoUrl(e.target.value)}
-              className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm placeholder:text-gray-600 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/50 focus:border-[var(--color-accent)] transition"
+              className="w-full border border-black/15 bg-white px-3 py-2 text-sm placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-black/20 focus:border-black/40 transition font-mono"
             />
           </div>
 
@@ -88,7 +87,7 @@ export default function InputSection() {
               placeholder="Team Alpha"
               value={teamName}
               onChange={(e) => setTeamName(e.target.value)}
-              className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm placeholder:text-gray-600 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/50 focus:border-[var(--color-accent)] transition"
+              className="w-full border border-black/15 bg-white px-3 py-2 text-sm placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-black/20 focus:border-black/40 transition"
             />
           </div>
 
@@ -104,13 +103,13 @@ export default function InputSection() {
               placeholder="Jane Smith"
               value={leaderName}
               onChange={(e) => setLeaderName(e.target.value)}
-              className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm placeholder:text-gray-600 focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/50 focus:border-[var(--color-accent)] transition"
+              className="w-full border border-black/15 bg-white px-3 py-2 text-sm placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-black/20 focus:border-black/40 transition"
             />
           </div>
 
           {/* Error */}
           {error && (
-            <div className="rounded-lg bg-red-500/10 border border-red-500/30 px-3 py-2 text-sm text-red-400">
+            <div className="bg-red-100 border border-red-300 px-3 py-2 text-sm text-red-700">
               {error}
             </div>
           )}
@@ -119,19 +118,9 @@ export default function InputSection() {
           <button
             type="submit"
             disabled={!canSubmit}
-            className="w-full flex items-center justify-center gap-2 rounded-lg bg-[var(--color-accent)] hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed px-4 py-2.5 text-sm font-medium text-white transition-colors"
+            className="w-full flex items-center justify-center gap-2 bg-black hover:bg-zinc-800 disabled:opacity-40 disabled:cursor-not-allowed px-4 py-2.5 text-sm font-medium text-white transition-colors"
           >
-            {loading ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Starting…
-              </>
-            ) : (
-              <>
-                <Rocket className="h-4 w-4" />
-                Start Run
-              </>
-            )}
+            {loading ? "Starting..." : "Start Run"}
           </button>
         </form>
       </Card>

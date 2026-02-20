@@ -30,18 +30,42 @@ from ..state import AgentState, ScoreBreakdown
 logger = logging.getLogger("rift.node.scorer")
 
 
-def _compute_score(total_time_secs: float, total_commits: int) -> ScoreBreakdown:
+def _compute_score(
+    total_time_secs: float,
+    total_commits: int,
+    total_failures: int,
+    total_fixes_applied: int,
+    tests_passed: bool,
+) -> ScoreBreakdown:
     base = float(SCORE_BASE)
-    speed_bonus = float(SCORE_SPEED_BONUS) if total_time_secs < SCORE_SPEED_THRESHOLD_SECS else 0.0
+
+    # Speed bonus only if the agent actually did meaningful work
+    speed_bonus = 0.0
+    if total_fixes_applied > 0 and total_time_secs < SCORE_SPEED_THRESHOLD_SECS:
+        speed_bonus = float(SCORE_SPEED_BONUS)
+
     efficiency_penalty = float(
         SCORE_EFFICIENCY_PENALTY_PER_COMMIT * max(0, total_commits - SCORE_EFFICIENCY_FREE_COMMITS)
     )
+
+    # Fix-rate adjustment: scale base by success rate
+    # If no failures were found at all, base stays 100.
+    # If failures were found, scale base by % fixed.
+    if total_failures > 0:
+        fix_rate = total_fixes_applied / total_failures
+        base = base * fix_rate  # e.g. 2/5 fixed → base = 40
+
+    # Bonus for passing all tests or CI
+    if tests_passed:
+        base = float(SCORE_BASE)  # restore full base if tests pass
+        speed_bonus = float(SCORE_SPEED_BONUS) if total_time_secs < SCORE_SPEED_THRESHOLD_SECS else 0.0
+
     total = base + speed_bonus - efficiency_penalty
     return ScoreBreakdown(
-        base=base,
+        base=round(base, 1),
         speed_bonus=speed_bonus,
         efficiency_penalty=efficiency_penalty,
-        total=max(0.0, total),
+        total=max(0.0, round(total, 1)),
     )
 
 
@@ -70,7 +94,14 @@ async def scorer(state: AgentState) -> AgentState:
     else:
         final_status = "FAILED"
 
-    score = _compute_score(total_time_secs, total_commits)
+    total_failures = len([f for f in fixes if f.status != "skipped"])
+    total_fixes_applied = len([f for f in fixes if f.status == "applied"])
+    tests_passed = (final_status == "PASSED")
+
+    score = _compute_score(
+        total_time_secs, total_commits,
+        total_failures, total_fixes_applied, tests_passed,
+    )
 
     # Build results.json
     results = {
@@ -80,8 +111,8 @@ async def scorer(state: AgentState) -> AgentState:
         "leader_name": state["leader_name"],
         "branch_name": state["branch_name"],
         "final_status": final_status,
-        "total_failures": len([f for f in fixes if f.status != "skipped"]),
-        "total_fixes": len([f for f in fixes if f.status == "applied"]),
+        "total_failures": total_failures,
+        "total_fixes": total_fixes_applied,
         "total_time_secs": round(total_time_secs, 2),
         "score": {
             "base": score.base,
