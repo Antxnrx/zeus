@@ -145,12 +145,16 @@ async function processAgentRun(job: Job<AgentRunJobData>): Promise<void> {
 }
 
 // ── Parse Redis URL for BullMQ connection ──────────────────
-function parseRedisUrl(url: string): { host: string; port: number } {
+function parseRedisUrl(url: string): { host: string; port: number; username?: string; password?: string; family?: number } {
   const parsed = new URL(url);
-  return {
+  const opts: { host: string; port: number; username?: string; password?: string; family?: number } = {
     host: parsed.hostname || "localhost",
     port: Number(parsed.port) || 6379,
+    family: 0, // allow both IPv4 and IPv6 (Railway private networking uses IPv6)
   };
+  if (parsed.username) opts.username = decodeURIComponent(parsed.username);
+  if (parsed.password) opts.password = decodeURIComponent(parsed.password);
+  return opts;
 }
 
 // ── Create and start the BullMQ worker ─────────────────────
@@ -160,7 +164,7 @@ const worker = new Worker<AgentRunJobData>(
   AGENT_RUNS_QUEUE,
   processAgentRun,
   {
-    connection: { host: redisOpts.host, port: redisOpts.port },
+    connection: redisOpts,
     concurrency: workerConfig.concurrency,
     removeOnComplete: { count: 500 },
     removeOnFail: { count: 200 },

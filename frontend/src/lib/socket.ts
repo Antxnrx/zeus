@@ -11,7 +11,8 @@ export function getSocket(): Socket {
   if (!socket) {
     socket = io(SOCKET_URL, {
       path: SOCKET_PATH,
-      transports: ["websocket", "polling"],
+      // Prefer polling first for proxy compatibility, then upgrade to websocket.
+      transports: ["polling", "websocket"],
       autoConnect: true,
       reconnection: true,
       reconnectionAttempts: 20,

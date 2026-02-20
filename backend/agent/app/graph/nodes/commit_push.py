@@ -113,7 +113,20 @@ async def commit_push(state: AgentState) -> AgentState:
             origin.set_url(auth_url)
 
         try:
-            origin.push(branch_name)
+            push_info = origin.push(branch_name)
+            if push_info:
+                first = push_info[0]
+                flags = getattr(first, "flags", 0)
+                summary = getattr(first, "summary", "")
+                # REJECTED / REMOTE_REJECTED / ERROR / REMOTE_FAILURE
+                bad_mask = (
+                    first.REJECTED
+                    | first.REMOTE_REJECTED
+                    | first.ERROR
+                    | first.REMOTE_FAILURE
+                )
+                if flags & bad_mask:
+                    raise RuntimeError(f"Push rejected: {summary}")
         finally:
             # Restore original URL (don't persist token on disk)
             if auth_url != original_url:

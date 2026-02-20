@@ -101,7 +101,9 @@ async def scorer(state: AgentState) -> AgentState:
     else:
         final_status = "FAILED"
 
-    total_failures = len([f for f in fixes if f.status != "skipped"])
+    # Count every analyzed failure record except rolled-back bookkeeping entries.
+    # Skipped fixes are still unresolved failures and should impact score.
+    total_failures = len([f for f in fixes if f.status != "rolled_back"])
     total_fixes_applied = len([f for f in fixes if f.status == "applied"])
     tests_passed = (final_status == "PASSED")
 

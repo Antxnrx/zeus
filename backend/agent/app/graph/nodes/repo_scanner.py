@@ -11,6 +11,7 @@ import shutil
 from pathlib import Path
 
 from git import Repo as GitRepo  # type: ignore[import-untyped]
+from git.exc import GitCommandError  # type: ignore[import-untyped]
 
 from ...config import REPOS_DIR
 from ...db import insert_trace
@@ -465,10 +466,16 @@ async def repo_scanner(state: AgentState) -> AgentState:
     # Clone in a thread to avoid blocking the event loop
     def _clone() -> GitRepo:
         repo = GitRepo.clone_from(repo_url, str(repo_dir), depth=1)
-        # Create and checkout the healing branch
-        if branch_name not in [h.name for h in repo.heads]:
-            repo.create_head(branch_name)
-        repo.heads[branch_name].checkout()  # type: ignore[union-attr]
+        # If the healing branch already exists remotely, base local work on it
+        # to avoid non-fast-forward push rejections on repeated runs.
+        try:
+            repo.git.fetch("origin", branch_name)
+            repo.git.checkout("-B", branch_name, f"origin/{branch_name}")
+        except GitCommandError:
+            # Branch doesn't exist remotely yet; create from current HEAD.
+            if branch_name not in [h.name for h in repo.heads]:
+                repo.create_head(branch_name)
+            repo.heads[branch_name].checkout()  # type: ignore[union-attr]
         return repo
 
     await asyncio.to_thread(_clone)

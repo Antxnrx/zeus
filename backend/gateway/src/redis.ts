@@ -17,6 +17,7 @@ export function getRedis(): RedisClient {
     _redis = new IORedis(config.redisUrl, {
       maxRetriesPerRequest: null, // required by BullMQ
       enableReadyCheck: true,
+      family: 0, // allow both IPv4 and IPv6 (Railway uses IPv6 private networking)
       retryStrategy(times: number) {
         return Math.min(times * 200, 5000);
       },
@@ -33,6 +34,7 @@ export function createRedisConnection(): RedisClient {
   return new IORedis(config.redisUrl, {
     maxRetriesPerRequest: null,
     enableReadyCheck: true,
+    family: 0,
     retryStrategy(times: number) {
       return Math.min(times * 200, 5000);
     },

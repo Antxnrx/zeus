@@ -6,14 +6,18 @@ export const AGENT_RUNS_QUEUE = "agent-runs";
 let _queue: Queue | null = null;
 
 /**
- * Parse Redis URL into host/port for BullMQ connection.
+ * Parse Redis URL into host/port/auth for BullMQ connection.
  */
-function parseRedisUrl(url: string): { host: string; port: number } {
+function parseRedisUrl(url: string): { host: string; port: number; username?: string; password?: string; family?: number } {
   const parsed = new URL(url);
-  return {
+  const opts: { host: string; port: number; username?: string; password?: string; family?: number } = {
     host: parsed.hostname || "localhost",
     port: Number(parsed.port) || 6379,
+    family: 0,
   };
+  if (parsed.username) opts.username = decodeURIComponent(parsed.username);
+  if (parsed.password) opts.password = decodeURIComponent(parsed.password);
+  return opts;
 }
 
 export interface AgentRunJobData {
@@ -39,7 +43,7 @@ export function getQueue(): Queue<AgentRunJobData> {
   if (!_queue) {
     const redisOpts = parseRedisUrl(config.redisUrl);
     _queue = new Queue<AgentRunJobData>(AGENT_RUNS_QUEUE, {
-      connection: { host: redisOpts.host, port: redisOpts.port },
+      connection: redisOpts,
       defaultJobOptions: {
         attempts: 3,
         backoff: { type: "exponential", delay: 2000 },

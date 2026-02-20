@@ -11,8 +11,17 @@ import type {
   RunStatusResponse,
 } from "@/types";
 
-const RAW_API_BASE = import.meta.env.VITE_API_BASE_URL ?? "/api";
-const BASE = RAW_API_BASE.replace(/\/+$/, "");
+function normalizeApiBase(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return "/api";
+
+  const withoutTrailingSlash = trimmed.replace(/\/+$/, "");
+  if (/^https?:\/\//i.test(withoutTrailingSlash)) return withoutTrailingSlash;
+  if (withoutTrailingSlash.startsWith("/")) return withoutTrailingSlash;
+  return `/${withoutTrailingSlash}`;
+}
+
+const BASE = normalizeApiBase(import.meta.env.VITE_API_BASE_URL ?? "/api");
 
 // ── Helpers ─────────────────────────────────────────────────
 

@@ -17,7 +17,10 @@ server {
 
     # Proxy REST API requests to gateway
     location /api/ {
-        proxy_pass $gateway_upstream/;
+        # With variable-based proxy_pass, nginx does not strip the matched
+        # location prefix automatically. Rewrite to gateway root path.
+        rewrite ^/api/?(.*)$ /$1 break;
+        proxy_pass $gateway_upstream;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -28,7 +31,8 @@ server {
 
     # Proxy Socket.io WebSocket to gateway
     location /socket.io/ {
-        proxy_pass $gateway_upstream/socket.io/;
+        # Preserve original /socket.io URI + query when proxying to gateway.
+        proxy_pass $gateway_upstream;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";

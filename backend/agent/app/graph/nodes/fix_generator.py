@@ -224,6 +224,36 @@ def _guess_import_manifest(repo_dir: Path) -> Path | None:
     return None
 
 
+def _looks_like_missing_test_script(error_message: str) -> bool:
+    """Detect npm missing-test-script errors from modern/legacy npm output."""
+    msg = error_message.lower()
+    return (
+        "missing script" in msg and "test" in msg
+    ) or ("no test specified" in msg)
+
+
+def _fix_package_json_missing_test_script(file_content: str) -> str | None:
+    """Ensure package.json contains a safe `scripts.test` entry."""
+    import json
+
+    try:
+        pkg = json.loads(file_content)
+    except json.JSONDecodeError:
+        return None
+
+    scripts = pkg.setdefault("scripts", {})
+    if not isinstance(scripts, dict):
+        return None
+
+    existing = str(scripts.get("test", "")).strip()
+    if existing:
+        return None
+
+    # Prefer a no-op success script over "npm ERR! missing script: test".
+    scripts["test"] = "echo \"No tests configured\""
+    return json.dumps(pkg, indent=2, ensure_ascii=True) + "\n"
+
+
 _RULE_FIXERS: dict[str, Any] = {
     "IMPORT": _fix_import,
     "INDENTATION": _fix_indentation,
@@ -376,29 +406,42 @@ async def fix_generator(state: AgentState) -> AgentState:
 
         file_path = repo_root / fp
         if not file_path.exists():
-            logger.warning("File not found: %s", file_path)
-            new_fixes.append(
-                FixRecord(
-                    file_path=fp,
-                    bug_type=failure.bug_type,
-                    line_number=failure.line_number,
-                    description=failure.error_message,
-                    fix_description="File not found — skipped",
-                    original_code="",
-                    fixed_code="",
-                    status="skipped",
-                    confidence=0.0,
+            # IMPORT failures often come with bad paths from parser/LLM (e.g. "npm").
+            # Fall back to dependency manifests before skipping.
+            manifest = _guess_import_manifest(repo_root) if failure.bug_type == "IMPORT" else None
+            if manifest is not None and manifest.exists():
+                file_path = manifest
+                fp = manifest.relative_to(repo_root).as_posix()
+            else:
+                logger.warning("File not found: %s", file_path)
+                new_fixes.append(
+                    FixRecord(
+                        file_path=fp,
+                        bug_type=failure.bug_type,
+                        line_number=failure.line_number,
+                        description=failure.error_message,
+                        fix_description="File not found — skipped",
+                        original_code="",
+                        fixed_code="",
+                        status="skipped",
+                        commit_message=f"[AI-AGENT] Unresolved {failure.bug_type}: file not found",
+                        confidence=0.0,
+                    )
                 )
-            )
-            continue
+                continue
 
         original_code = file_path.read_text(encoding="utf-8", errors="replace")
 
         # 1. Try rule-based fix
         fixed_code = None
         model_used = "rule-based"
+
+        # Fast path: npm missing-test-script configuration errors.
+        if file_path.name == "package.json" and _looks_like_missing_test_script(failure.error_message):
+            fixed_code = _fix_package_json_missing_test_script(original_code)
+
         fixer = _RULE_FIXERS.get(failure.bug_type)
-        if fixer:
+        if fixed_code is None and fixer:
             if failure.bug_type == "IMPORT":
                 fixed_code = fixer(failure, original_code, file_path, repo_root)
             else:
@@ -440,6 +483,7 @@ async def fix_generator(state: AgentState) -> AgentState:
                     original_code=original_code[:500],
                     fixed_code="",
                     status="failed",
+                    commit_message=f"[AI-AGENT] Unresolved {failure.bug_type}: no patch generated",
                     confidence=0.0,
                     model_used=model_used,
                 )

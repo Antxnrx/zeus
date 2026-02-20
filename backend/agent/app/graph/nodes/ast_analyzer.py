@@ -674,39 +674,60 @@ async def ast_analyzer(state: AgentState) -> AgentState:
         "no test specified",
         "Error: no test specified",
         "missing script: test",
+        'missing script: "test"',
+        "missing script 'test'",
         "command not found",
         "ERROR: Test command not found",
         "Test execution timed out",
         "npm ERR! missing script",
+        "npm error missing script",
         "Cannot find module",
         "Could not locate a valid entry",
     ]
     output_lower = test_output.lower()
+    missing_test_script = bool(
+        re.search(r"missing script:\s*[\"']?test[\"']?", test_output, re.I)
+        or "no test specified" in output_lower
+    )
     is_config_error = (
-        len(test_output.strip()) < 300
-        and any(marker.lower() in output_lower for marker in _CONFIG_ERROR_MARKERS)
+        any(marker.lower() in output_lower for marker in _CONFIG_ERROR_MARKERS)
+        or missing_test_script
     )
 
     if is_config_error:
         await emit_thought(
             run_id, "ast_analyzer",
-            "Detected config/environment error (not a test failure) — using LLM to analyze repo…",
+            "Detected config/environment error (not a test failure) — analyzing config…",
             step + 1,
         )
-        failures = await _llm_analyze_repo_failures(test_output, repo_dir, framework)
-        if not failures:
-            # Produce a single meaningful failure pointing at likely config file
-            config_file = _guess_config_file(repo_dir, framework)
+        # Deterministic handling for common npm config failure.
+        pkg_path = Path(repo_dir) / "package.json"
+        if missing_test_script and pkg_path.exists():
             failures = [
                 TestFailure(
-                    file_path=config_file,
-                    test_name="test_configuration",
+                    file_path="package.json",
+                    test_name="missing_test_script",
                     line_number=1,
                     error_message=test_output.strip()[:500],
                     bug_type="SYNTAX",
                     raw_output=test_output[:1000],
                 )
             ]
+        else:
+            failures = await _llm_analyze_repo_failures(test_output, repo_dir, framework)
+            if not failures:
+                # Produce a single meaningful failure pointing at likely config file
+                config_file = _guess_config_file(repo_dir, framework)
+                failures = [
+                    TestFailure(
+                        file_path=config_file,
+                        test_name="test_configuration",
+                        line_number=1,
+                        error_message=test_output.strip()[:500],
+                        bug_type="SYNTAX",
+                        raw_output=test_output[:1000],
+                    )
+                ]
     else:
         # ── Normal flow: rule-based parsing by framework ──
         _JEST_LIKE = {"jest", "vitest", "ava", "jasmine", "hardhat", "truffle"}

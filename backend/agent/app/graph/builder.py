@@ -100,19 +100,29 @@ def should_fix(state: AgentState) -> Literal["fix_generator", "scorer"]:
     return "fix_generator"
 
 
-def should_monitor_ci(state: AgentState) -> Literal["ci_monitor", "scorer"]:
+def should_monitor_ci(state: AgentState) -> Literal["ci_monitor", "retry", "scorer"]:
     """
     After commit_push, decide whether to poll CI.
     If push failed (error_message set, no commit_sha on fixes), skip CI
     and go straight to scorer — no point polling for a push that didn't land.
     """
     error = state.get("error_message", "")
+    iteration = state.get("iteration", 1)
+    max_iter = state.get("max_iterations", MAX_ITERATIONS)
+    quarantine = state.get("quarantine_reason")
+    fixes = state.get("fixes", [])
     if error and "commit/push failed" in error.lower():
         return "scorer"
     # Monitor CI only if this iteration pushed a fresh commit.
-    if not state.get("pushed_this_iteration", False):
-        return "scorer"
-    return "ci_monitor"
+    if state.get("pushed_this_iteration", False):
+        return "ci_monitor"
+
+    # No push happened, but we still have unresolved failures. Retry locally.
+    unresolved = any(f.status in ("failed", "skipped") for f in fixes)
+    if unresolved and not quarantine and iteration < max_iter:
+        return "retry"
+
+    return "scorer"
 
 
 # ── Build the graph ─────────────────────────────────────────
@@ -160,6 +170,7 @@ def build_agent_graph() -> Any:
         should_monitor_ci,
         {
             "ci_monitor": "ci_monitor",
+            "retry": "increment_iteration",
             "scorer": "scorer",
         },
     )

@@ -82,6 +82,7 @@ export class RedisBridge {
       maxRetriesPerRequest: null,
       enableReadyCheck: true,
       lazyConnect: true,
+      family: 0,
       retryStrategy(times: number) {
         return Math.min(times * 200, 5000);
       },

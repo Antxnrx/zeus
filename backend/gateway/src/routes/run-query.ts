@@ -22,26 +22,13 @@ runQueryRouter.get("/agent/status/:runId", async (req, res) => {
     return res.status(400).json(buildErrorEnvelope("INVALID_INPUT", "Invalid run_id"));
   }
 
-  const active = runStore.getActiveByRunId(runId);
-
-  if (active) {
-    return res.status(200).json({
-      run_id: active.run_id,
-      status: active.status,
-      current_node: "queued",
-      iteration: 0,
-      max_iterations: config.maxIterations,
-      progress_pct: 0
-    });
-  }
-
   try {
     const results = await readResultsArtifact(config.outputsDir, runId);
     return res.status(200).json({
       run_id: results.run_id,
       status: results.final_status.toLowerCase(),
       current_node: "complete",
-      iteration: results.ci_log.length,
+      iteration: Math.max(1, results.ci_log.length),
       max_iterations: config.maxIterations,
       progress_pct: 100
     });
@@ -72,6 +59,19 @@ runQueryRouter.get("/agent/status/:runId", async (req, res) => {
     }
   } catch {
     // DB unavailable — fall through to 404
+  }
+
+  // Last fallback: in-memory queued/running state
+  const active = runStore.getActiveByRunId(runId);
+  if (active) {
+    return res.status(200).json({
+      run_id: active.run_id,
+      status: active.status,
+      current_node: "queued",
+      iteration: 0,
+      max_iterations: config.maxIterations,
+      progress_pct: 0
+    });
   }
 
   return res.status(404).json(buildErrorEnvelope("NOT_FOUND", "Run not found"));
