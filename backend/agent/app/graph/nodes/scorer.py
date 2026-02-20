@@ -30,6 +30,13 @@ from ..state import AgentState, ScoreBreakdown
 logger = logging.getLogger("rift.node.scorer")
 
 
+def _public_ci_status(status: str) -> str:
+    """
+    Map internal CI statuses to contract-safe public statuses.
+    """
+    return "failed" if status == "no_ci" else status
+
+
 def _compute_score(
     total_time_secs: float,
     total_commits: int,
@@ -133,7 +140,7 @@ async def scorer(state: AgentState) -> AgentState:
         "ci_log": [
             {
                 "iteration": cr.iteration,
-                "status": cr.status,
+                "status": _public_ci_status(cr.status),
                 "timestamp": cr.timestamp,
                 "regression": cr.regression,
             }

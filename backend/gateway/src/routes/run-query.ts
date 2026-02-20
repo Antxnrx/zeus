@@ -4,6 +4,7 @@ import { config } from "../config.js";
 import {
   assertRunId,
   hasReportArtifact,
+  readResultsArtifactRaw,
   readResultsArtifact,
   reportArtifactPath
 } from "../artifacts.js";
@@ -85,6 +86,23 @@ runQueryRouter.get("/results/:runId", async (req, res) => {
   } catch (error) {
     if (error instanceof Error && error.message.includes("Invalid run_id")) {
       return res.status(400).json(buildErrorEnvelope("INVALID_INPUT", "Invalid run_id"));
+    }
+
+    // Backward-compat: if artifact exists but fails current schema,
+    // still return it instead of masking as 404.
+    if (
+      error instanceof Error &&
+      error.message.includes("violates contract")
+    ) {
+      try {
+        const legacyPayload = await readResultsArtifactRaw(config.outputsDir, runId);
+        return res
+          .status(200)
+          .set("X-Results-Contract", "legacy")
+          .json(legacyPayload);
+      } catch {
+        // fall through
+      }
     }
 
     return res.status(404).json(buildErrorEnvelope("NOT_FOUND", "results.json not found"));

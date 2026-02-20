@@ -67,8 +67,10 @@ async def emit_fix_applied(
         "line": line,
         "status": status,
         "confidence": confidence,
-        "commit_sha": commit_sha,
     }
+    # Optional field must be omitted when absent to satisfy strict schema.
+    if commit_sha:
+        payload["commit_sha"] = commit_sha
     r = await _get_redis()
     await r.publish("run:event:fix_applied", json.dumps(payload))
     logger.debug("fix_applied run=%s file=%s", run_id, file)
@@ -81,6 +83,12 @@ async def emit_ci_update(
     regression: bool,
 ) -> None:
     """Publish a ci_update event to Redis."""
+    # Keep socket payload contract-safe even if callers pass internal statuses.
+    if status == "no_ci":
+        status = "failed"
+    if status not in {"pending", "running", "passed", "failed"}:
+        status = "failed"
+
     payload = {
         "run_id": run_id,
         "iteration": iteration,

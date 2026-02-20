@@ -458,7 +458,7 @@ def _parse_generic_output(output: str, repo_dir: str) -> list[TestFailure]:
 async def _llm_classify_failures(output: str) -> list[TestFailure]:
     """Use LLM as fallback to extract and classify failures."""
     if not has_llm_keys():
-        logger.warning("No Groq API keys — cannot use LLM fallback")
+        logger.warning("No LLM keys configured — cannot use LLM fallback")
         return []
 
     from langchain_core.messages import HumanMessage, SystemMessage
@@ -480,13 +480,12 @@ Test output:
 {output[:4000]}
 ```"""
 
-    resp = await llm.ainvoke([
-        SystemMessage(content="You are a test output parser. Return valid JSON only."),
-        HumanMessage(content=prompt),
-    ])
-
     import json
     try:
+        resp = await llm.ainvoke([
+            SystemMessage(content="You are a test output parser. Return valid JSON only."),
+            HumanMessage(content=prompt),
+        ])
         raw = str(resp.content).strip()
         # Strip markdown fences if present
         if raw.startswith("```"):
@@ -510,8 +509,8 @@ Test output:
             )
             for item in items
         ]
-    except (json.JSONDecodeError, TypeError):
-        logger.error("LLM returned invalid JSON for failure classification")
+    except Exception as exc:
+        logger.warning("LLM failure-classification fallback failed: %s", exc)
         return []
 
 

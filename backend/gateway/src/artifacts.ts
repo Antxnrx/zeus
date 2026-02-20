@@ -56,6 +56,12 @@ export async function readResultsArtifact(outputsRoot: string, runId: string): P
   return parsed as ResultsJson;
 }
 
+export async function readResultsArtifactRaw(outputsRoot: string, runId: string): Promise<unknown> {
+  const filePath = path.join(runOutputDir(outputsRoot, runId), "results.json");
+  const raw = await readFile(filePath, "utf8");
+  return JSON.parse(raw) as unknown;
+}
+
 export async function hasReportArtifact(outputsRoot: string, runId: string): Promise<boolean> {
   const reportPath = path.join(runOutputDir(outputsRoot, runId), "report.pdf");
   try {

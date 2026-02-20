@@ -21,6 +21,13 @@ from ..state import AgentState, CiRun
 logger = logging.getLogger("rift.node.ci_monitor")
 
 
+def _public_ci_status(status: str) -> str:
+    """
+    Map internal CI statuses to contract-safe public statuses.
+    """
+    return "failed" if status == "no_ci" else status
+
+
 async def _poll_github_actions(
     repo_url: str,
     branch_name: str,
@@ -136,6 +143,7 @@ async def ci_monitor(state: AgentState) -> AgentState:
         POLL_CI_INTERVAL_SECS,
         workflow_just_created=workflow_created,
     )
+    public_status = _public_ci_status(ci_status)
 
     completed_at = datetime.now(timezone.utc)
 
@@ -156,12 +164,12 @@ async def ci_monitor(state: AgentState) -> AgentState:
     )
     ci_runs.append(ci_run)
 
-    await emit_ci_update(run_id, iteration, ci_status, regression)
+    await emit_ci_update(run_id, iteration, public_status, regression)
 
     await insert_ci_event(
         run_id,
         iteration=iteration,
-        status=ci_status,
+        status=public_status,
         github_run_id=github_run_id,
         failures_before=failures_before,
         failures_after=ci_run.failures_after,
@@ -173,7 +181,7 @@ async def ci_monitor(state: AgentState) -> AgentState:
 
     await emit_thought(
         run_id, "ci_monitor",
-        f"CI iteration {iteration}: {ci_status.upper()}"
+        f"CI iteration {iteration}: {public_status.upper()}"
         + (f" ⚠ REGRESSION DETECTED" if regression else ""),
         step + 1,
     )
@@ -185,7 +193,7 @@ async def ci_monitor(state: AgentState) -> AgentState:
         action_type="ci_poll",
         action_label=f"CI {ci_status} — {'regression' if regression else 'clean'}",
         payload={
-            "ci_status": ci_status,
+            "ci_status": public_status,
             "github_run_id": github_run_id,
             "regression": regression,
             "duration_secs": round(duration, 1),
